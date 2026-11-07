@@ -12,7 +12,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Performance Craft",
-    "shortDescription": "Measure and fix web, app and API performance with before/after numbers.",
+    "shortDescription": "Measure and fix web, app and API performance",
     "category": "Productivity"
   }
 }

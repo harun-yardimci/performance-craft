@@ -134,7 +134,11 @@ async function main() {
   const cruxKey = process.env.CRUX_API_KEY || process.env.GOOGLE_API_KEY; const psiKey = process.env.PSI_API_KEY || process.env.GOOGLE_API_KEY;
   const result = { url: o.url, date: new Date().toISOString(), formFactors: {}, notes: [] };
   const L = [`# Field data: ${o.url}`, '', `${result.date.slice(0, 16).replace('T', ' ')} UTC · Core Web Vitals at p75 for real Chrome users (28-day window). Field = what users feel; lab = why.`, ''];
-  if (!cruxKey) result.notes.push('No CRUX_API_KEY: used PageSpeed Insights, which has a small anonymous quota and may drop CrUX data in future; get a free key at https://developer.chrome.com/docs/crux/api.');
+  if (!cruxKey) {
+    result.notes.push('No CRUX_API_KEY: used PageSpeed Insights, which runs a full Lighthouse audit per form factor (~20-40 s each), has a small shared anonymous quota and may drop CrUX data in future; get a free key at https://developer.chrome.com/docs/crux/api.');
+    if (o.history) result.notes.push('--history needs the CrUX API; PageSpeed Insights returns the current 28-day window only.');
+    if (o.formFactors.includes('TABLET')) result.notes.push('PageSpeed Insights has no tablet strategy; "tablet" was queried as mobile.');
+  }
 
   for (const ff of o.formFactors) {
     let scope = null, data = null, source = '', labRun = null, error = null;
@@ -155,7 +159,10 @@ async function main() {
       L.push(`| ${METRICS[k].label} | **${fmt(k, m.p75)}**${trend} | ${pct(m.good)} | ${rate(k, m.p75)} | ${fmt(k, METRICS[k].good)} / ${fmt(k, METRICS[k].poor)} |`); }
     const failing = CORE.filter(k => data.metrics[k] && rate(k, data.metrics[k].p75) !== 'good').map(k => METRICS[k].label);
     L.push('', failing.length ? `Core Web Vitals assessment: **fails** (${failing.join(', ')} not good at p75). Fix these first; the lab run shows which sub-part.` : 'Core Web Vitals assessment: **passes** at p75. Lab findings here are hygiene unless a specific page or segment is worse.');
-    if (labRun && labRun.lcp !== null) L.push('', `One PageSpeed lab run for context (single run, not a baseline): LCP ${Math.round(labRun.lcp)} ms, CLS ${labRun.cls?.toFixed(3)}, TBT ${Math.round(labRun.tbt)} ms, Lighthouse performance ${labRun.score === null ? '-' : Math.round(labRun.score * 100)}.`);
+    if (labRun && labRun.lcp !== null) {
+      const msOr = (v) => v === null || v === undefined ? '-' : `${Math.round(v)} ms`;
+      L.push('', `One PageSpeed lab run for context (single run, not a baseline): LCP ${msOr(labRun.lcp)}, CLS ${labRun.cls === null || labRun.cls === undefined ? '-' : labRun.cls.toFixed(3)}, TBT ${msOr(labRun.tbt)}, Lighthouse performance ${labRun.score === null || labRun.score === undefined ? '-' : Math.round(labRun.score * 100)}.`);
+    }
     L.push('');
   }
   if (result.notes.length) L.push('Notes: ' + result.notes.join(' '), '');

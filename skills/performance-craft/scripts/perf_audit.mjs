@@ -71,7 +71,7 @@ function parseArgs(argv) {
     const a = argv[i];
     const next = () => { const v = argv[++i]; if (v === undefined) { console.error(`${a} needs a value`); process.exit(2); } return v; };
     switch (a) {
-      case '--out': o.out = next(); break;
+      case '--out': o.out = next(); o.outSet = true; break;
       case '--profiles': o.profiles = next().split(',').map(s => s.trim()).filter(Boolean); break;
       case '--runs': o.runs = Number(next()); break;
       case '--cpu': o.cpu = Number(next()); break;
@@ -606,10 +606,13 @@ async function compareReports(opts) {
   if (A.chrome !== B.chrome) L.push('> Different Chrome versions: differences may come from the browser, not the page.', '');
   if (A.url !== B.url) L.push('> Different URLs: only compare if the after URL is the same page.', '');
   const names = { ttfb: 'TTFB', fcp: 'FCP', lcp: 'LCP', cls: 'CLS', tbt: 'TBT (lab)', inp: 'INP proxy' };
+  const common = Object.keys(A.profiles || {}).filter(n => B.profiles?.[n]);
+  const onlyOne = [...Object.keys(A.profiles || {}), ...Object.keys(B.profiles || {})].filter(n => !common.includes(n));
+  if (!common.length) { console.error(`Nothing to compare: the reports have no profile in common (before: ${Object.keys(A.profiles || {}).join(', ') || '-'}; after: ${Object.keys(B.profiles || {}).join(', ') || '-'}). Re-run both audits with the same --profiles.`); process.exit(2); }
+  if (onlyOne.length) L.push(`> Profile(s) present in only one report and skipped: ${[...new Set(onlyOne)].join(', ')}.`, '');
   let regressed = 0;
-  for (const name of Object.keys(A.profiles)) {
+  for (const name of common) {
     const a = A.profiles[name], b = B.profiles[name];
-    if (!b) continue;
     const runsA = a.runs || [], runsB = b.runs || [];
     L.push(`## ${a.label}`, '', `Runs: ${runsA.length} before, ${runsB.length} after.${runsA.length < 2 || runsB.length < 2 ? ' Single runs: run-to-run noise is unknown, so a 10% band is assumed.' : ''}`, '');
     L.push('| Metric | Before (median, range) | After (median, range) | Change | Verdict |', '| --- | --- | --- | --- | --- |');
@@ -645,7 +648,7 @@ async function compareReports(opts) {
   }
   L.push('Verdict rule: a change counts only when it is larger than the run-to-run spread of either report; compare reports made with the same arguments on the same machine. Lab numbers; confirm user impact with field data.');
   const md = L.join('\n');
-  if (opts.out && opts.out !== 'perf-audit') { await mkdir(opts.out, { recursive: true }); await writeFile(path.join(opts.out, 'compare.md'), md); }
+  if (opts.outSet) { await mkdir(opts.out, { recursive: true }); await writeFile(path.join(opts.out, 'compare.md'), md); console.error(`Wrote ${path.join(opts.out, 'compare.md')}`); }
   console.log(md);
   if (opts.failOnBudget && regressed) process.exit(1);
 }
