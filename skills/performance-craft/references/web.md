@@ -15,7 +15,7 @@ Fix the largest of the four sub-parts first (reported by `perf_audit.mjs`):
 Text LCP has no resource parts: TTFB + render delay only. If LCP is a hero video poster or slider, make the first slide static HTML.
 
 ## INP (Interaction to Next Paint) - "clicks feel laggy"
-INP = input delay + processing (handlers) + presentation delay (render/paint after the handler). `perf_audit.mjs --interact` measures scripted clicks; field INP needs RUM (`web-vitals` `onINP` with attribution).
+INP = input delay + processing (handlers) + presentation delay (render/paint after the handler). `perf_audit.mjs --interact` measures scripted clicks; field INP needs RUM (`web-vitals` `onINP` with attribution, which carries the Long Animation Frames script attribution: send `attribution.longAnimationFrameEntries` or the summarised script URL/function with the beacon so production INP points at a file, not just an element). For SPAs, soft-navigation reporting is still experimental: route changes do not reset LCP/CLS in most RUM setups, so segment by route yourself.
 
 | Part | Causes | Fixes |
 | --- | --- | --- |
@@ -29,7 +29,8 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 - Web fonts swapping with different metrics → `size-adjust`/`ascent-override` fallbacks (`next/font` does this), `font-display: optional`.
 - Late-loading content above existing content (e.g. a fetched notice at the top) → skeleton with the final height.
 - Animations of `top/left/height/width` → animate `transform`/`opacity`.
-- Back/forward: ensure the page is eligible for the back/forward cache (no `unload` handlers, no `Cache-Control: no-store` on HTML unless required); check DevTools → Application → Back/forward cache.
+- Back/forward: ensure the page is eligible for the back/forward cache (bfcache): no `unload` handlers (`pagehide` instead), no `Cache-Control: no-store` on HTML unless required, no open `BroadcastChannel`/IndexedDB transactions at navigation; check DevTools → Application → Back/forward cache. A bfcache hit is an instant navigation with zero CLS.
+- SPA route changes and reorders: the View Transitions API (`document.startViewTransition`, framework wrappers) animates between states instead of letting content jump; it does not reduce a measured CLS by itself, but it removes the perceived jump.
 
 ## TTFB and server rendering
 - View source: if the HTML has an empty root div, everything waits for JS. Prefer SSR/SSG/ISR or server components for content.
@@ -37,6 +38,7 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 - Stream: send the shell and above-the-fold content first (React Suspense/streaming, `<Suspense>` boundaries around slow data).
 - Avoid sequential data waterfalls in loaders/server components: start independent fetches together.
 - `Server-Timing` header exposes backend phases in DevTools; add it for diagnosis.
+- Early Hints (HTTP 103): when the trace shows slow HTML generation and a stable set of critical subresources, send `103` with `Link: </hero.webp>; rel=preload; as=image` / `rel=preconnect` before the final response (needs HTTP/2+, origin or CDN support). Only proven critical resources; wrong hints waste bandwidth. Measure; vendor case studies are not your result.
 
 ## JavaScript cost
 - Every KB of JS costs download + parse + compile + execute; on a mid-range phone ~1 MB of JS can cost seconds of main-thread time.

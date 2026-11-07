@@ -17,7 +17,7 @@ It covers the whole path a user waits on:
 - **Mobile apps**: launch time, hangs, scrolling jank, memory and battery in SwiftUI/UIKit, Jetpack Compose, React Native and Flutter
 - **Backends**: N+1 queries, unbounded queries, missing indexes, timeouts, connection pooling, caching, queues, cold starts and AI streaming
 
-It ships with two measuring tools: a **lab audit** that drives your installed Chrome under mobile throttling, and a **static scanner** that finds performance leads in code across nine stacks.
+It ships with three measuring tools: a **lab audit** that drives your installed Chrome under mobile throttling and compares before/after runs with a noise verdict, a **field data** reader for Core Web Vitals of real users (CrUX), and a **static scanner** that finds performance leads in code across nine stacks.
 
 ---
 
@@ -226,17 +226,32 @@ To install it for a single project, copy it to `.claude/skills/` in that repo in
 ### OpenAI Codex
 
 ```bash
-git clone https://github.com/harun-yardimci/performance-craft.git
-cp -R performance-craft/skills/performance-craft ~/.agents/skills/
+codex plugin marketplace add harun-yardimci/performance-craft
 ```
 
-For a single project, use `.agents/skills/`. The optional `agents/openai.yaml` sets the display name and default prompt in the Codex UI.
+Codex CLI v0.122+; the same `skills/` folder is served through `codex/` and `.agents/plugins/marketplace.json`. Manual alternative: copy `skills/performance-craft` to `~/.agents/skills/` (or `.agents/skills/` in one project). The optional `agents/openai.yaml` sets the display name and default prompt in the Codex UI. Details in [docs/codex-setup.md](docs/codex-setup.md).
+
+### Gemini CLI
+
+```bash
+gemini extensions install https://github.com/harun-yardimci/performance-craft
+```
+
+`gemini-extension.json` at the root makes the repository an extension; running Gemini inside a clone loads the skill through `.gemini/skills` too. Details in [docs/gemini-setup.md](docs/gemini-setup.md).
+
+### Cursor, Copilot, OpenCode and others (skills.sh)
+
+```bash
+npx skills add harun-yardimci/performance-craft
+```
+
+The [skills](https://skills.sh) CLI copies `skills/performance-craft` into whichever agents it finds. Any agent that reads `SKILL.md` can also take a plain copy of that folder.
 
 ### Claude apps
 
 Download `performance-craft.zip` from the [latest release](https://github.com/harun-yardimci/performance-craft/releases/latest) and upload it under **Settings → Capabilities → Skills**.
 
-The lab audit needs a current Node.js LTS and an installed Chrome or Edge; the static scanner needs only Python 3.
+Whichever host you use: the lab audit needs a current Node.js LTS, an installed Chrome or Edge and one `npm install` in `scripts/`; the static scanner needs only Python 3; `field_data.mjs` needs a free `CRUX_API_KEY` for anything beyond occasional use.
 
 ---
 
@@ -314,6 +329,36 @@ Sub-parts (median run): TTFB 1 ms · resource load delay 3471 ms · resource loa
 ```
 
 Findings are **leads, not verdicts**: the agent confirms each one in the code or DevTools before acting on it. Write a budget like `{"lcp":2500,"cls":0.1,"inp":200,"jsKB":350,"totalKB":1600,"requests":80}` and add `--fail-on-budget` to stop regressions in CI.
+
+### Before → after, with a noise verdict
+
+```bash
+node perf_audit.mjs --compare before/report.json after/report.json
+```
+
+The same tool compares two reports made with the same arguments and says whether each change is larger than the run-to-run spread. Real output for the demo store (single runs here, so a 10% band is assumed):
+
+```text
+| Metric | Before (median, range) | After (median, range) | Change | Verdict |
+| FCP | 3476 ms | 676 ms | -2800 ms (-81%) | **improved** (poor → good) |
+| LCP | 28092 ms | 2764 ms | -25328 ms (-90%) | **improved** (poor → needs improvement) |
+| CLS | 0.154 | 0.000 | -0.154 | **improved** (needs improvement → good) |
+| TBT (lab) | 0 ms | 130 ms | +130 ms | **regressed** (good → good) |
+| INP proxy | 360 ms | 208 ms | -152 ms (-42%) | **improved** (needs improvement → needs improvement) |
+| Transferred | 4580 KB | 277 KB | -4303 KB (-94%) | less |
+
+Findings gone: `page-heavy`, `lcp-late-discovery`, `render-blocking`, `js-heavy`, `image-no-dimensions`, `long-tasks`, `cls-sources`, `js-file-big`, `image-format`.
+```
+
+A change inside the noise band is reported as *within noise*, and the skill treats that as a revert: code that did not buy anything is not kept. `--fail-on-budget` makes a regression exit 1 for CI.
+
+### Field data: what real users get
+
+```bash
+CRUX_API_KEY=… node field_data.mjs https://example.com/product
+```
+
+[`field_data.mjs`](skills/performance-craft/scripts/field_data.mjs) reads the Chrome UX Report for the URL (p75 per metric, % good, phone and desktop separately, URL scope with a labelled origin fallback, `--history` for 25 weekly points) and falls back to the PageSpeed Insights API without a key. The agent uses it to decide *what* users suffer from before the lab audit decides *why*, and reads it with fixed rules: URL beats origin, form factors are never averaged, "no data" is not a pass, and a fix shows in CrUX only after weeks, so it is proven in the lab first. If the agent's harness has Chrome DevTools MCP, the skill also uses its trace insights (`LCPBreakdown`, `RenderBlocking`, `ThirdParties`) as a second opinion on attribution.
 
 ---
 
@@ -401,8 +446,12 @@ skills/performance-craft/
 skills/performance-craft/scripts/
 ├── perf_audit.mjs               # lab audit in installed Chrome (playwright-core)
 ├── package.json                 # its only dependency: playwright-core
+├── field_data.mjs               # CrUX / PageSpeed field data at p75 (no dependencies)
 └── static_perf_audit.py         # static scan for performance leads
 .claude-plugin/                  # Claude Code plugin + marketplace manifests
+codex/, .agents/plugins/         # Codex plugin (codex/skills is a symlink to ../skills)
+gemini-extension.json, .gemini/  # Gemini CLI extension and workspace skills
+docs/                            # Codex and Gemini setup notes
 examples/                        # mockup sources, demo store, static-scan fixture, render.mjs
 assets/                          # rendered images
 ```

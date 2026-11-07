@@ -10,7 +10,7 @@
     {
       "name": "performance-craft",
       "description": "Measure, diagnose and fix performance across web, mobile apps and their backends, with before/after numbers.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "./",
       "category": "development"
     }

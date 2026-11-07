@@ -1,0 +1,18 @@
+{
+  "name": "performance-craft",
+  "version": "1.1.0",
+  "description": "Measure, diagnose and fix performance across web, mobile apps and their backends, with before/after numbers.",
+  "author": {
+    "name": "Harun Yardimci",
+    "url": "https://harun-yardimci.github.io"
+  },
+  "homepage": "https://github.com/harun-yardimci/performance-craft",
+  "repository": "https://github.com/harun-yardimci/performance-craft",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Performance Craft",
+    "shortDescription": "Measure and fix web, app and API performance with before/after numbers.",
+    "category": "Productivity"
+  }
+}

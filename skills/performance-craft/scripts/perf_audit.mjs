@@ -28,6 +28,9 @@
  *   --no-coverage         Skip the extra diagnostic run that measures unused JS/CSS
  *   --trace               Save a Chrome trace of the diagnostic run (open in DevTools >
  *                         Performance > Load profile)
+ *   --compare A B         No audit: compare two report.json files (before, after) made with the
+ *                         same arguments. Prints medians, ranges, change and a noise verdict per
+ *                         profile; with --fail-on-budget exits 1 when a metric regressed beyond noise.
  *
  * Output: report.md (read this), report.json, <profile>-final.png
  *
@@ -82,6 +85,7 @@ function parseArgs(argv) {
       case '--fail-on-budget': o.failOnBudget = true; break;
       case '--no-coverage': o.coverage = false; break;
       case '--trace': o.trace = true; break;
+      case '--compare': o.compare = [next(), next()]; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (a.startsWith('--')) { console.error(`Unknown option ${a}`); process.exit(2); }
@@ -89,7 +93,7 @@ function parseArgs(argv) {
     }
   }
   o.target = rest[0];
-  if (!o.target) { printHelp(); process.exit(2); }
+  if (!o.target && !o.compare) { printHelp(); process.exit(2); }
   for (const p of o.profiles) if (!PROFILES[p]) { console.error(`Unknown profile "${p}" (mobile, desktop)`); process.exit(2); }
   if (!Number.isInteger(o.runs) || o.runs < 1 || o.runs > 15) { console.error('--runs must be 1..15'); process.exit(2); }
   if (!Number.isFinite(o.settle) || o.settle < 0) { console.error('--settle must be >= 0'); process.exit(2); }
@@ -101,7 +105,9 @@ function printHelp() {
   const src = new URL(import.meta.url).pathname;
   console.log(`Usage: node ${path.basename(src)} <url | file.html> [--profiles mobile,desktop] [--runs 3] [--repeat]\n` +
     `       [--interact "sel1,sel2"] [--scroll] [--wait-for SEL] [--storage-state FILE] [--budget FILE]\n` +
-    `       [--fail-on-budget] [--no-coverage] [--trace] [--cpu N] [--out DIR]\nSee the header of this file for details.`);
+    `       [--fail-on-budget] [--no-coverage] [--trace] [--cpu N] [--out DIR]\n` +
+    `       node ${path.basename(src)} --compare before/report.json after/report.json [--out DIR] [--fail-on-budget]\n` +
+    `See the header of this file for details.`);
 }
 
 const PROFILES = {
@@ -592,8 +598,61 @@ function localHost(target) {
   return /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$|\.(localhost|test)$/.test(host);
 }
 
+// ---------- before → after ----------
+async function compareReports(opts) {
+  const [A, B] = await Promise.all(opts.compare.map(async p => JSON.parse(await readFile(p, 'utf8'))));
+  const when = (r) => (r.date || '').slice(0, 16).replace('T', ' ');
+  const L = ['# Before → after', '', `Before: ${A.url} (${when(A)} UTC, Chrome ${A.chrome})  `, `After: ${B.url} (${when(B)} UTC, Chrome ${B.chrome})`, ''];
+  if (A.chrome !== B.chrome) L.push('> Different Chrome versions: differences may come from the browser, not the page.', '');
+  if (A.url !== B.url) L.push('> Different URLs: only compare if the after URL is the same page.', '');
+  const names = { ttfb: 'TTFB', fcp: 'FCP', lcp: 'LCP', cls: 'CLS', tbt: 'TBT (lab)', inp: 'INP proxy' };
+  let regressed = 0;
+  for (const name of Object.keys(A.profiles)) {
+    const a = A.profiles[name], b = B.profiles[name];
+    if (!b) continue;
+    const runsA = a.runs || [], runsB = b.runs || [];
+    L.push(`## ${a.label}`, '', `Runs: ${runsA.length} before, ${runsB.length} after.${runsA.length < 2 || runsB.length < 2 ? ' Single runs: run-to-run noise is unknown, so a 10% band is assumed.' : ''}`, '');
+    L.push('| Metric | Before (median, range) | After (median, range) | Change | Verdict |', '| --- | --- | --- | --- | --- |');
+    const range = (runs, k) => { const v = runs.map(r => r[k]).filter(Number.isFinite); return v.length ? { min: Math.min(...v), max: Math.max(...v), n: v.length } : null; };
+    const fmtRange = (k, r) => r && r.n > 1 ? ` (${fmtMetric(k, r.min)} – ${fmtMetric(k, r.max)})` : '';
+    for (const k of Object.keys(names)) {
+      const av = a.medians?.[k], bv = b.medians?.[k];
+      if (av === null || av === undefined || bv === null || bv === undefined) continue;
+      const ra = range(runsA, k), rb = range(runsB, k);
+      const spread = Math.max(ra && ra.n > 1 ? ra.max - ra.min : 0, rb && rb.n > 1 ? rb.max - rb.min : 0);
+      // noise band: the larger run-to-run spread, else 10%; never below what a user could notice
+      const floor = k === 'cls' ? 0.01 : 50;
+      const band = Math.max(spread > 0 ? spread : Math.abs(av) * 0.1, floor);
+      const delta = bv - av; const pct = av ? Math.round(delta / av * 100) : null;
+      let verdict;
+      if (Math.abs(delta) <= band) verdict = delta === 0 ? 'unchanged' : 'within noise';
+      else if (delta < 0) verdict = `**improved** (${rate(k, av)} → ${rate(k, bv)})`;
+      else { verdict = `**regressed** (${rate(k, av)} → ${rate(k, bv)})`; regressed++; }
+      const sign = delta >= 0 ? '+' : '';
+      const change = k === 'cls' ? sign + delta.toFixed(3) : `${sign}${Math.round(delta)} ms${pct === null ? '' : ` (${sign}${pct}%)`}`;
+      L.push(`| ${names[k]} | ${fmtMetric(k, av)}${fmtRange(k, ra)} | ${fmtMetric(k, bv)}${fmtRange(k, rb)} | ${change} | ${verdict} |`);
+    }
+    const row = (label, x, y, f) => { if (x === undefined || y === undefined) return; const d = y - x; const s = d < 0 ? '-' : '+'; L.push(`| ${label} | ${f(x)} | ${f(y)} | ${s}${f(Math.abs(d))}${x ? ` (${s}${Math.abs(Math.round(d / x * 100))}%)` : ''} | ${d < 0 ? 'less' : d > 0 ? 'more' : 'same'} |`); };
+    row('Transferred', a.totalBytes, b.totalBytes, kb);
+    row('Requests', a.requests, b.requests, String);
+    row('Findings', a.findings?.length, b.findings?.length, String);
+    const beforeRules = new Set((a.findings || []).map(f => f.rule)), afterRules = new Set((b.findings || []).map(f => f.rule));
+    const fixed = [...beforeRules].filter(r => !afterRules.has(r)), added = [...afterRules].filter(r => !beforeRules.has(r));
+    L.push('');
+    if (fixed.length) L.push(`Findings gone: ${fixed.map(r => `\`${r}\``).join(', ')}.`);
+    if (added.length) L.push(`New findings: ${added.map(r => `\`${r}\``).join(', ')}.`);
+    L.push('');
+  }
+  L.push('Verdict rule: a change counts only when it is larger than the run-to-run spread of either report; compare reports made with the same arguments on the same machine. Lab numbers; confirm user impact with field data.');
+  const md = L.join('\n');
+  if (opts.out && opts.out !== 'perf-audit') { await mkdir(opts.out, { recursive: true }); await writeFile(path.join(opts.out, 'compare.md'), md); }
+  console.log(md);
+  if (opts.failOnBudget && regressed) process.exit(1);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.compare) return compareReports(opts);
   opts.url = /^[a-z]+:\/\//i.test(opts.target) ? opts.target : existsSync(opts.target) ? pathToFileURL(path.resolve(opts.target)).href : `${localHost(opts.target) ? 'http' : 'https'}://${opts.target}`;
   const budget = opts.budget ? JSON.parse(await readFile(opts.budget, 'utf8')) : {};
   await mkdir(opts.out, { recursive: true });

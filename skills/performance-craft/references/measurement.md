@@ -11,6 +11,26 @@ Performance work without a baseline is guessing. Measure the user-facing symptom
 
 Rule: decide **what** to fix from field data when it exists, decide **how** with lab data, prove the fix with lab data, confirm in the field later.
 
+## Field data: `field_data.mjs` and reading CrUX
+`node scripts/field_data.mjs <url> [--form-factors phone,desktop] [--history] [--out DIR]` prints p75, % good and rating per metric and form factor. It queries the CrUX API with `CRUX_API_KEY` (free key, URL + origin, 28-day window, `--history` for 25 weekly points) and falls back to the PageSpeed Insights API (small anonymous quota; Google has said CrUX data will leave that API, so get a key for anything repeated).
+
+Reading rules:
+- **Scope**: URL-level data is evidence for this page. Origin-level data (the fallback, labelled in the output) describes the whole site; treat it as context, not as this page's verdict.
+- **Form factor**: phone and desktop are separate verdicts. Phone usually fails first. Never average or mix them.
+- **Unavailable ≠ passing**: localhost, staging, new, private and low-traffic pages have no CrUX record. Say "no field data" and rely on lab numbers plus RUM.
+- **Percentile**: the assessment is p75 against the thresholds; "% good" tells you how much of the tail you must move.
+- **Delay**: CrUX is a rolling 28-day window; a deploy today shows in weeks. Verify fixes in the lab now, and re-check the field later.
+- **First-party RUM** (`web-vitals` with attribution, Sentry, Datadog…) beats CrUX for diagnosis: it has routes, releases, devices and the element/script that caused the metric.
+
+Field vs lab disagreements:
+
+| Field | Lab | Read as |
+| --- | --- | --- |
+| Poor | Poor | Reproducible; trace the dominant sub-part and fix it |
+| Poor | Good | Your lab run misses real conditions: slower devices, other routes/states, logged-in pages, ads/consent, cache state. Segment RUM, test those |
+| Good | Poor | The cold throttled lab case is fragile but users are fine today; fix as hygiene, do not claim users suffer |
+| Unavailable | Any | Lab data only; recommend RUM if production impact matters |
+
 Core Web Vitals are judged at the **75th percentile** of page loads: LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 good; LCP > 4 s, INP > 500 ms, CLS > 0.25 poor. Supporting: TTFB ≤ 0.8 s, FCP ≤ 1.8 s. TBT (lab only) correlates with INP; ≤ 200 ms on the mobile profile is good.
 
 ## Conditions
@@ -59,6 +79,10 @@ Setup once: `cd scripts && npm install` (uses installed Chrome/Edge; no browser 
 - `--trace` saves `<profile>-trace.json`; open in Chrome DevTools → Performance → Load profile for a full flame chart.
 
 Limits: TBT is approximated from long tasks until the network settles; INP proxy only covers scripted clicks; throttling is simulated; numbers are machine-specific. For Lighthouse parity you can also run `npx lighthouse <url> --preset=perf` (downloads a package) or PageSpeed Insights for public URLs.
+
+**Before → after**: `node scripts/perf_audit.mjs --compare before/report.json after/report.json [--out DIR]` prints one table per profile with the medians, the run ranges, the change and a verdict (`improved`, `regressed`, `within noise`). The noise band is the larger run-to-run spread of the two reports; with single runs it falls back to a 10% band and says so. Add `--fail-on-budget` to exit 1 on a regression (CI). Compare only reports made with the same arguments, Chrome version and machine; the tool warns when the Chrome versions differ.
+
+**Chrome DevTools MCP** (when the agent harness has it): `performance_start_trace` + `performance_analyze_insight` give LCP/INP attribution from one trace (`LCPBreakdown`, `LCPDiscovery`, `RenderBlocking`, `DocumentLatency`, `ThirdParties`, `ForcedReflow`). Use it to confirm a cause; keep medians and before/after from `perf_audit.mjs`, since one trace is one run. `lighthouse_audit` there covers the non-performance categories.
 
 ## Reading `static_perf_audit.py`
 `python3 scripts/static_perf_audit.py <repo> [--max 15] [--only rule,rule] [--json]`
