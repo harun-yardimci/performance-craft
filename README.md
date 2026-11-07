@@ -363,7 +363,7 @@ Real output on [`examples/static-demo`](examples/static-demo), a small Laravel +
 | Backend and data | `query-in-loop` · `serial-awaits` · `unbounded-query` · `no-timeout` · `connection-per-call` · `sync-io` · `ai-not-streamed` · `polling` · `search-no-debounce` |
 | Bundles and assets | `heavy-dependency` · `heavy-import` · `img-no-dimensions` · `raw-img-in-next` · `google-fonts-link` · `big-asset` |
 | Lists and rendering | `list-not-virtualized` · `list-key` · `formatter-in-body` · `observedobject-init` · `anyview` · `geometry-in-list` · `collect-lifecycle` |
-| Android build | `release-not-minified` (R8 off, or resource shrinking off) · `no-baseline-profile` |
+| Android build | `release-not-minified` · `resources-not-shrunk` · `no-baseline-profile` |
 
 Most hits matter only on a hot path. On a real app the agent reads each one and lists the rejected ones with a reason: a nightly cleanup job that pages through rows on purpose isn't an N+1 on a request path, and a `ScrollView` over five fixed settings rows doesn't need virtualizing.
 

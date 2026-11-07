@@ -49,7 +49,8 @@ Rules (language in brackets):
   anyview              AnyView type erasure (defeats SwiftUI diffing); counted per file
   geometry-in-list     GeometryReader inside a List / ForEach row
   collect-lifecycle    collectAsState() instead of collectAsStateWithLifecycle()
-  release-not-minified Android release build with minify disabled
+  release-not-minified Android release build type with R8 / minify disabled (or no release block)
+  resources-not-shrunk Android release build with R8 on but isShrinkResources off
   no-baseline-profile  Android app module without a baseline profile plugin
 
 Skipped dirs: node_modules, build, dist, .next, Pods, DerivedData, vendor, …
@@ -81,6 +82,22 @@ DART_CALL = re.compile(r"await\s+[\w.]*(?:get|post|fetch|query|load)\w*\(")
 # folders that hold docs, screenshots, reports or scratch work rather than shipped code/assets
 VENDORED = re.compile(r"/(public|static|assets?|wwwroot)/(.*/)?(plugins?|libs?|vendors?|dist)/")
 NON_APP = re.compile(r"/(docs?|design|screenshots?|outputs?|work|quality|evidence|marketing|fastlane|reports?|tmp|temp|archive|backup|samples?|demo|examples?|fixtures?)/")
+
+
+RULES = ["query-in-loop", "unbounded-query", "connection-per-call", "sync-io", "no-timeout", "serial-awaits", "ai-not-streamed",
+         "list-not-virtualized", "formatter-in-body", "observedobject-init", "search-no-debounce", "polling", "heavy-dependency",
+         "heavy-import", "big-asset", "img-no-dimensions", "raw-img-in-next", "google-fonts-link", "list-key", "geometry-in-list",
+         "anyview", "collect-lifecycle", "release-not-minified", "resources-not-shrunk", "no-baseline-profile"]
+
+
+def rel_path(path, root):
+    """Path inside the scanned project, as '/a/b/c.ext' in lower case. Path filters apply to this,
+    never to where the project lives (a repo under ~/work/ or /tmp/ must still be scanned)."""
+    return "/" + os.path.relpath(path, root).replace("\\", "/").lower()
+
+
+def under(path, dirs):
+    return any(path == d or path.startswith(d + os.sep) for d in dirs)
 
 
 def walk(root):
@@ -135,9 +152,9 @@ def loop_bodies(lines, i, n=8):
 def scan_code(s, path, text, ext, ctx):
     lines = text.split("\n")
     is_js = ext in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte"}
-    # Path filters apply to the path INSIDE the scanned project, never to where the project lives
-    # (a repo under ~/work/ or /tmp/ must still be scanned).
-    low = "/" + os.path.relpath(path, s.root).replace("\\", "/").lower()
+    low = rel_path(path, s.root)
+    # framework context comes from the nearest package.json above this file, not from any package.json in the repo
+    is_next = under(path, ctx.get("next", ())); is_rn = under(path, ctx.get("rn", ()))
     is_server = is_js and any(k in low for k in ("/api/", "/server/", "/routes/", "/controllers/", "/services/",
                                                  "/lib/server", "route.ts", "route.js", "+server.", ".server.", "/functions/", "/backend/")) and "/public/" not in low
     is_test = bool(re.search(r"(^|/)[^/]*tests?(/|$)|uitests/", low)) or any(k in low for k in ("/test", "spec.", ".test.", "/__tests__/", "/fixtures/", "/mocks/", "/scripts/", "/seed", "/eval/", "/docs/", "/examples/"))
@@ -153,7 +170,8 @@ def scan_code(s, path, text, ext, ctx):
             if not LOOP.search(l):
                 continue
             for j, b in loop_bodies(lines, i):
-                if call.search(b):
+                # a call handed to a task group / child task / Promise.all runs in parallel, not serially
+                if call.search(b) and not re.search(r"addTask|async let|Promise\.all|\blaunch\s*\{|\basync\s*\{", b):
                     s.add("query-in-loop", path, j + 1, b)
                     break
 
@@ -204,7 +222,8 @@ def scan_code(s, path, text, ext, ctx):
         # connection per call
         if is_js and re.search(r"new PrismaClient\(", l) and indent(l) > 0 and "globalThis" not in " ".join(lines[max(0, i - 3):i + 1]):
             s.add("connection-per-call", path, n, l)
-        if re.search(r"\b(mysql2?|mysql)\.createConnection\(|\bcreateConnection\(", l) and is_js:
+        # module-level createConnection (mongoose, TypeORM) is the pooled pattern; inside a function it is per call
+        if is_js and indent(l) > 0 and re.search(r"\b(mysql2?|mysql)\.createConnection\(|\bcreateConnection\(", l):
             s.add("connection-per-call", path, n, l)
         if is_js and re.search(r"new (pg\.)?(Pool|Client)\(", l) and indent(l) >= 4:
             s.add("connection-per-call", path, n, l)
@@ -240,7 +259,7 @@ def scan_code(s, path, text, ext, ctx):
             tag = " ".join(lines[i:i + 6]); tag = tag[tag.find("<img"):]; tag = tag[:tag.find(">") + 1] if ">" in tag else tag
             if not (re.search(r"\bwidth\s*=", tag) and re.search(r"\bheight\s*=", tag)) and "aspect" not in tag and "fill" not in tag:
                 s.add("img-no-dimensions", path, n, tag)
-            if ctx.get("next") and is_js:
+            if is_next and is_js:
                 s.add("raw-img-in-next", path, n, tag)
         if re.search(r"(href=|@import|url\()\s*['\"]?https://fonts\.googleapis\.com", l):
             s.add("google-fonts-link", path, n, l)
@@ -269,22 +288,24 @@ def scan_code(s, path, text, ext, ctx):
                 s.add("list-not-virtualized", path, n, l)
         if ext == ".dart" and re.search(r"ListView\(\s*$|ListView\(\s*children\s*:", l) and re.search(r"\.map\(|for\s*\(", " ".join(lines[i:i + 8])):
             s.add("list-not-virtualized", path, n, l)
-        if is_js and re.search(r"<ScrollView\b", l) and ctx.get("rn") and re.search(r"\.map\(", " ".join(lines[i:i + 15])):
+        if is_js and is_rn and re.search(r"<ScrollView\b", l) and re.search(r"\.map\(", " ".join(lines[i:i + 15])):
             s.add("list-not-virtualized", path, n, l)
 
     # formatters inside SwiftUI body / @Composable
     if ext == ".swift" and "var body" in text:
-        in_body = False; depth = 0
+        in_body = False; depth = 0; opened = False
         for i, l in enumerate(lines):
             if re.search(r"var body\s*:\s*some\s+View", l):
-                in_body, depth = True, 0
+                in_body, depth, opened = True, 0, False
             if in_body:
                 depth += l.count("{") - l.count("}")
+                opened = opened or "{" in l
                 if re.search(r"\b(DateFormatter|NumberFormatter|JSONDecoder|JSONEncoder|ISO8601DateFormatter|MeasurementFormatter|NSRegularExpression|CIContext)\(", l):
                     s.add("formatter-in-body", path, i + 1, l)
                 if re.search(r"UIImage\(data:", l):
                     s.add("formatter-in-body", path, i + 1, l + "  (image decode in body)")
-                if depth <= 0 and "{" in "".join(lines[i - 1:i + 1]):
+                # body ends when its braces balance again (one-liners close on the same line)
+                if opened and depth <= 0:
                     in_body = False
     if ext == ".kt" and "@Composable" in text:
         for i, l in enumerate(lines):
@@ -332,10 +353,11 @@ def scan_package(s, path, ctx):
     except Exception:
         return
     deps = {**pkg.get("dependencies", {})}
+    here = os.path.dirname(path)
     if "next" in deps:
-        ctx["next"] = True
+        ctx.setdefault("next", []).append(here)
     if "react-native" in deps or "expo" in deps:
-        ctx["rn"] = True
+        ctx.setdefault("rn", []).append(here)
     for name, why in HEAVY.items():
         if name in deps:
             s.add("heavy-dependency", path, 1, f'"{name}": {deps[name]}  -> {why}')
@@ -345,20 +367,39 @@ def scan_package(s, path, ctx):
             s.add("heavy-dependency", path, 1, f"{len(have)} {label}: {', '.join(have)} -> keep one")
 
 
+def brace_block(text, start):
+    """(line number, text) of the brace-balanced block whose opening matches `start`; (None, '') if absent."""
+    m = re.search(start, text)
+    if not m:
+        return None, ""
+    i, depth = m.end(), 1
+    while i < len(text) and depth:
+        depth += {"{": 1, "}": -1}.get(text[i], 0); i += 1
+    return text.count("\n", 0, m.start()) + 1, text[m.end():i]
+
+
 def scan_gradle(s, path, text):
-    if re.search(r"com\.android\.application|id\(\"com\.android\.application\"\)|alias\(libs\.plugins\.android\.application\)", text):
-        if re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*false", text) and "release" in text:
-            ln = next(i for i, l in enumerate(text.split("\n")) if re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*false", l))
-            s.add("release-not-minified", path, ln + 1, "release minify disabled (R8 off: bigger, slower app)")
-        if re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*true", text) and not re.search(r"(isShrinkResources|shrinkResources)\s*(=)?\s*true", text):
-            ln = next(i for i, l in enumerate(text.split("\n")) if re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*true", l))
-            s.add("release-not-minified", path, ln + 1, "R8 on but resource shrinking off (isShrinkResources): unused resources ship; keep names resolved via getIdentifier in res/raw/keep.xml")
-        if not re.search(r"baselineprofile|baselineProfile", text) and not re.search(r"android\.application\)?\s*apply\s+false", text):
-            s.add("no-baseline-profile", path, 1, "no app Baseline Profile (androidx.baselineprofile): library profiles from Compose arrive via profileinstaller, but your startup and journey code is still interpreted/JIT on first runs")
+    if not re.search(r"com\.android\.application|id\(\"com\.android\.application\"\)|alias\(libs\.plugins\.android\.application\)", text):
+        return
+    if re.search(r"android\.application\)?\s*apply\s+false", text):
+        return  # root build file that only declares the plugin
+    # only the release build type counts: debug { isMinifyEnabled = false } is normal
+    ln, release = brace_block(text, r"\brelease\s*(\([^)]*\)\s*)?\{")
+    minify_on = re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*true", release)
+    if ln is None:
+        s.add("release-not-minified", path, 1, "no release build type configured: R8/minify is off by default (bigger, slower app)")
+    elif not minify_on:
+        m = re.search(r"(isMinifyEnabled|minifyEnabled)\s*(=)?\s*false", release)
+        at = ln + release.count("\n", 0, m.start()) if m else ln
+        s.add("release-not-minified", path, at, "release minify disabled (R8 off: bigger, slower app)")
+    elif not re.search(r"(isShrinkResources|shrinkResources)\s*(=)?\s*true", release):
+        s.add("resources-not-shrunk", path, ln + release.count("\n", 0, minify_on.start()), "R8 on but resource shrinking off (isShrinkResources): unused resources ship; keep names resolved via getIdentifier in res/raw/keep.xml")
+    if not re.search(r"baselineprofile|baselineProfile", text):
+        s.add("no-baseline-profile", path, 1, "no app Baseline Profile (androidx.baselineprofile): library profiles from Compose arrive via profileinstaller, but your startup and journey code is still interpreted/JIT on first runs")
 
 
 def scan_asset(s, path, root):
-    rel = "/" + os.path.relpath(path, root).replace("\\", "/").lower()
+    rel = rel_path(path, root)
     if NON_APP.search(rel) or rel.count("/") < 2 or not re.search(r"/(public|static|assets?|res|resources|images?|img|media|src|app)/|\.xcassets/", rel):
         return
     ext = os.path.splitext(path)[1].lower()
@@ -380,11 +421,16 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--only", default="", help="comma list of rules")
     a = ap.parse_args()
+    only = {r.strip() for r in a.only.split(",") if r.strip()}
+    unknown = sorted(only - set(RULES))
+    if unknown:
+        sys.exit(f"Unknown rule(s) in --only: {', '.join(unknown)}. Rules: {', '.join(RULES)}")
     root = os.path.abspath(a.path)
     s = Scan(root, a.max); ctx = {}
     files = list(walk(root))
     for p in files:
-        if os.path.basename(p) == "package.json" and not VENDORED.search("/" + os.path.relpath(p, root).replace("\\", "/").lower()):
+        rel = rel_path(p, root)
+        if os.path.basename(p) == "package.json" and not VENDORED.search(rel) and not NON_APP.search(rel):
             scan_package(s, p, ctx)
     for p in files:
         ext = os.path.splitext(p)[1].lower(); base = os.path.basename(p)
@@ -401,22 +447,17 @@ def main():
         if re.search(r"\.min\.(js|css)$", base) or "generated" in os.path.relpath(p, root).lower():
             continue
         if ext in {".gradle", ".kts"} and "build.gradle" in base:
-            if not NON_APP.search("/" + os.path.relpath(p, root).replace("\\", "/").lower()):
+            if not NON_APP.search(rel_path(p, root)):
                 scan_gradle(s, p, text)
             continue
         scan_code(s, p, text, ext, ctx)
-    only = {r.strip() for r in a.only.split(",") if r.strip()}
     hits = {k: v for k, v in s.hits.items() if not only or k in only}
     if a.json:
         print(json.dumps({"root": root, "counts": {k: s.counts[k] for k in hits}, "hits": hits}, indent=2)); return
     if not hits:
         print(f"No performance leads found under {root}."); return
-    order = ["query-in-loop", "unbounded-query", "connection-per-call", "sync-io", "no-timeout", "serial-awaits", "ai-not-streamed",
-             "list-not-virtualized", "formatter-in-body", "observedobject-init", "search-no-debounce", "polling", "heavy-dependency",
-             "heavy-import", "big-asset", "img-no-dimensions", "raw-img-in-next", "google-fonts-link", "list-key", "geometry-in-list",
-             "anyview", "collect-lifecycle", "release-not-minified", "no-baseline-profile"]
     print(f"Performance leads under {root} (confirm each; measure before/after)\n")
-    for rule in sorted(hits, key=lambda r: order.index(r) if r in order else 99):
+    for rule in sorted(hits, key=lambda r: RULES.index(r) if r in RULES else 99):
         total = s.counts[rule]
         print(f"## {rule} ({total} hit{'s' if total != 1 else ''}{', showing ' + str(len(hits[rule])) if total > len(hits[rule]) else ''})")
         for h in hits[rule]:

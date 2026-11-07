@@ -285,9 +285,10 @@ async function measure(browser, prof, opts, { coverage = false, tracePath = null
 
   const notes = [];
   const t0 = Date.now();
+  let navFailed = false;
   try {
     await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 90000 });
-  } catch (e) { notes.push(`Navigation failed: ${e.message.split('\n')[0]}`); }
+  } catch (e) { navFailed = true; notes.push(`Navigation failed: ${e.message.split('\n')[0]}`); }
   await page.waitForLoadState('load', { timeout: 60000 }).catch(() => notes.push('load event did not fire within 60 s'));
   if (opts.waitFor) await page.waitForSelector(opts.waitFor, { state: 'visible', timeout: 30000 }).catch(() => notes.push(`--wait-for "${opts.waitFor}" not visible within 30 s`));
   // settle: network quiet (<= 2 in flight for 1.5 s) or --settle reached
@@ -299,8 +300,9 @@ async function measure(browser, prof, opts, { coverage = false, tracePath = null
   await page.waitForTimeout(500);
   const wall = Date.now() - t0;
 
+  // a failed navigation leaves about:blank or an error page: no metrics, so the run must count as failed
   let data = null;
-  try { data = await page.evaluate(collectPage); } catch (e) { notes.push(`Could not read page metrics: ${e.message.split('\n')[0]}`); }
+  if (!navFailed) try { data = await page.evaluate(collectPage); } catch (e) { notes.push(`Could not read page metrics: ${e.message.split('\n')[0]}`); }
 
   // interactions (INP proxy)
   const interactions = [];
@@ -311,8 +313,11 @@ async function measure(browser, prof, opts, { coverage = false, tracePath = null
       const before = await page.evaluate(() => (window.__perf?.events || []).length).catch(() => 0);
       try {
         await page.click(sel, { timeout: 5000 });
-        await page.waitForTimeout(800);
       } catch (e) { interactions.push({ selector: sel, error: e.message.split('\n')[0] }); continue; }
+      // Event Timing entries arrive after the interaction's next paint, so a slow click (1 s+) reports late:
+      // wait for the first entry (up to 5 s), then a little longer for the rest of the group.
+      await page.waitForFunction(b => (window.__perf?.events || []).length > b, before, { timeout: 5000, polling: 100 }).catch(() => {});
+      await page.waitForTimeout(500);
       if (page.url() !== startUrl) { interactions.push({ selector: sel, error: 'click navigated away; later selectors skipped' }); break; }
       const evs = await page.evaluate((b) => (window.__perf?.events || []).slice(b), before).catch(() => []);
       if (!evs.length) { interactions.push({ selector: sel, duration: null, note: 'no event entry ≥16 ms (fast, or click did nothing)' }); continue; }
@@ -362,10 +367,7 @@ async function measure(browser, prof, opts, { coverage = false, tracePath = null
   }
   if (tracePath) await browser.stopTracing().catch(() => notes.push('Trace could not be saved'));
 
-  const shot = page;
-  const requests = [...reqs.values()];
-  if (!reuseCtx) { /* caller decides whether to close */ }
-  return { data, requests, interactions, scroll, cov, notes, wall, page: shot, ctx };
+  return { data, requests: [...reqs.values()], interactions, scroll, cov, notes, wall, page, ctx };
 }
 
 function jsUsage(entry) {
@@ -584,9 +586,15 @@ function renderProfile(name, prof, runs, a, diag, repeat, opts, budget) {
 }
 
 // ---------- main ----------
+// Dev servers have no TLS: a bare "localhost:3000" / "127.0.0.1:8080" / "app.test" target gets http://, everything else https://.
+function localHost(target) {
+  const host = target.split(/[/?#]/)[0].replace(/:\d+$/, '').toLowerCase();
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$|\.(localhost|test)$/.test(host);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  opts.url = /^[a-z]+:\/\//i.test(opts.target) ? opts.target : existsSync(opts.target) ? pathToFileURL(path.resolve(opts.target)).href : `https://${opts.target}`;
+  opts.url = /^[a-z]+:\/\//i.test(opts.target) ? opts.target : existsSync(opts.target) ? pathToFileURL(path.resolve(opts.target)).href : `${localHost(opts.target) ? 'http' : 'https'}://${opts.target}`;
   const budget = opts.budget ? JSON.parse(await readFile(opts.budget, 'utf8')) : {};
   await mkdir(opts.out, { recursive: true });
   const { chromium } = loadPlaywright();
@@ -594,14 +602,15 @@ async function main() {
   const version = browser.version();
   const out = { url: opts.url, date: new Date().toISOString(), chrome: version, profiles: {} };
   const md = [`# Performance audit: ${opts.url}`, '', `${out.date.slice(0, 16).replace('T', ' ')} UTC · Chrome ${version} · ${opts.runs} cold run(s) per profile · lab data from this machine (not field data).`, ''];
-  let overBudget = false;
+  let overBudget = false; let failedProfiles = 0;
 
   for (const name of opts.profiles) {
     const prof = { ...PROFILES[name] }; if (name === 'mobile' && opts.cpu) { prof.cpu = opts.cpu; prof.label = `Mobile (Slow 4G, ${opts.cpu}x CPU)`; }
-    const runs = [];
+    const runs = []; let lastNotes = [];
     for (let i = 0; i < opts.runs; i++) {
       process.stderr.write(`${name}: run ${i + 1}/${opts.runs}…\n`);
       const run = await measure(browser, prof, opts);
+      lastNotes = run.notes;
       if (run.data) runs.push({ run, a: analyse(run, prof, opts, budget), notes: run.notes });
       else console.error(`  run failed: ${run.notes.join('; ')}`);
       if (i === opts.runs - 1 && run.data) await run.page.screenshot({ path: path.join(opts.out, `${name}-final.png`) }).catch(() => {});
@@ -614,7 +623,7 @@ async function main() {
       }
       await run.ctx.close();
     }
-    if (!runs.length) { md.push(`## ${prof.label}`, '', 'All runs failed: ' + 'see notes above.', ''); continue; }
+    if (!runs.length) { failedProfiles++; md.push(`## ${prof.label}`, '', `All ${opts.runs} run(s) failed; nothing measured. Last notes: ${lastNotes.join(' · ') || '-'}`, ''); continue; }
     // median run by LCP for detail tables
     const sorted = [...runs].sort((x, y) => (x.a.metric.lcp ?? 0) - (y.a.metric.lcp ?? 0));
     const medRun = sorted[Math.floor((sorted.length - 1) / 2)];
@@ -630,7 +639,9 @@ async function main() {
     const r = renderProfile(name, prof, runs, a, diag, repeat, opts, budget);
     md.push(r.md);
     for (const k of Object.keys(r.med)) if (r.med[k] !== null && r.med[k] > (budget[k] ?? THRESHOLDS[k][1])) overBudget = true;
-    if (r.findings.some(f => ['js-heavy', 'page-heavy'].includes(f.rule) && budget.jsKB !== undefined)) overBudget = true;
+    // size budgets fail the run only when the user set that budget explicitly
+    const budgetRules = { 'js-heavy': 'jsKB', 'page-heavy': 'totalKB', 'requests-many': 'requests' };
+    if (r.findings.some(f => budgetRules[f.rule] && budget[budgetRules[f.rule]] !== undefined)) overBudget = true;
     out.profiles[name] = { label: prof.label, medians: r.med, lcpParts: a.lcpParts, findings: r.findings, byType: a.byType, totalBytes: a.totalBytes,
       requests: a.requests, thirdParties: a.third.map(([s, v]) => ({ site: s, ...v })), interactions: a.run.interactions, scroll: a.run.scroll, repeat,
       runs: runs.map(x => x.a.metric) };
@@ -641,6 +652,7 @@ async function main() {
   await writeFile(path.join(opts.out, 'report.json'), JSON.stringify(out, null, 2));
   console.log(`Wrote ${path.join(opts.out, 'report.md')}`);
   for (const [n, p] of Object.entries(out.profiles)) console.log(`  ${n}: ` + Object.entries(p.medians).map(([k, v]) => `${k.toUpperCase()} ${fmtMetric(k, v)}`).join(' · ') + ` · ${p.findings.length} finding(s)`);
+  if (failedProfiles) { console.error(`${failedProfiles} profile(s) could not be measured (see report notes).`); process.exit(1); }
   if (opts.failOnBudget && overBudget) process.exit(1);
 }
 

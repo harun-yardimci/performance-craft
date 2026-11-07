@@ -15,6 +15,7 @@ for (const file of pages) {
   await page.waitForLoadState("networkidle");
   let body = await page.locator("body").boundingBox();
   await page.setViewportSize({ width: 1280, height: Math.ceil(body.height) });
+  await page.waitForTimeout(300); // let Chrome repaint after the resize, or the capture can come out tiled
   body = await page.locator("body").boundingBox();
   const out = path.join(here, "..", "assets", file.replace(".html", ".png"));
   await page.screenshot({ path: out, clip: { x: 0, y: 0, width: Math.ceil(body.width), height: Math.ceil(body.height) } });

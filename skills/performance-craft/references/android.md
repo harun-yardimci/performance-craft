@@ -22,7 +22,7 @@ Useful commands:
 
 ## Startup
 - **Baseline Profiles** (S:`no-baseline-profile`): AOT-compile startup and critical user journeys - typically ~20-30% faster startup and smoother first scrolls. Add the `androidx.baselineprofile` Gradle plugin + a `:baselineprofile` module with a Macrobenchmark generator, and `androidx.profileinstaller`. Startup Profiles (DEX layout) on top for cold start.
-- **R8** full mode for release (`isMinifyEnabled = true`, `isShrinkResources = true`) (S:`release-not-minified`).
+- **R8** full mode for release (`isMinifyEnabled = true`, `isShrinkResources = true`) (S:`release-not-minified`, `resources-not-shrunk`).
 - Do less in `Application.onCreate` and the first Activity: lazy SDK initialization (App Startup library with lazy initializers, or initialize on first use), no disk/network on the main thread, no large DI graphs eagerly created.
 - Show the first frame fast with the SplashScreen API; keep the splash only while truly needed (`setKeepOnScreenCondition` briefly), call `reportFullyDrawn()` when real content is shown.
 - Avoid content providers from libraries that auto-initialize (check merged manifest).
