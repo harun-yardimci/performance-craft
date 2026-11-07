@@ -208,9 +208,18 @@ Source: [web.dev: Web Vitals](https://web.dev/articles/vitals).
 
 ### Claude Code: plugin (recommended)
 
-```bash
+Inside a Claude Code session:
+
+```text
 /plugin marketplace add harun-yardimci/performance-craft
 /plugin install performance-craft@performance-craft
+```
+
+Or from the terminal:
+
+```bash
+claude plugin marketplace add harun-yardimci/performance-craft
+claude plugin install performance-craft@performance-craft
 ```
 
 ### Claude Code: manual
