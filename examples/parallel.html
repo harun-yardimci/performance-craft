@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.stage { min-height: 0; flex-direction: column; align-items: stretch; gap: 6px; padding: 22px; }
+.lane { height: 18px; } .req { top: 2px; height: 14px; } .req.half-top { top: 2px; height: 6.5px; } .req.half-bot { top: 9.5px; height: 6.5px; }
+.big.poor { color: var(--bad); } .big.good { color: var(--good); }
+.code { font-size: 12px; }
+</style></head><body>
+<div class="compare">
+  <div class="side before-side">
+    <span class="tag before">Before</span>
+    <div class="stage" id="serial">
+      <div><span class="big poor">2.40 s</span> <span class="sub">12 clients × (round + photos), one after another</span></div>
+    </div>
+<div class="code"><span class="k">for</span> client <span class="k">in</span> selected {
+  <span class="hl">let round = try await fetchRound(client.id)</span>
+  <span class="hl">let photos = try? await fetchPhotos(client.id)</span>
+  …
+}</div>
+    <ul class="notes">
+      <li><span class="num">1</span>24 independent requests wait for each other. With real ~330 ms API calls that is about 8 s before the feed appears.</li>
+    </ul>
+  </div>
+  <div class="side after-side">
+    <span class="tag after">After</span>
+    <div class="stage" id="parallel">
+      <div><span class="big good">0.32 s</span> <span class="sub">4 clients at a time, round and photos together</span></div>
+    </div>
+<div class="code">await withTaskGroup(of: (Int, Result).self) { group <span class="k">in</span>
+  <span class="k">for</span> (i, id) <span class="k">in</span> ids.enumerated() {
+    <span class="k">if</span> i &gt;= <span class="ok">4</span>, <span class="k">let</span> done = await group.next() { keep(done) }
+    group.addTask { (i, await <span class="ok">fetchRoundAndPhotos</span>(id)) }
+  } <span class="c">// results kept in client order</span>
+}</div>
+    <ul class="notes">
+      <li><span class="num">1</span>A concurrency cap of 4 respects the API; results are processed in the original order, so error and cancellation rules don't change.</li>
+    </ul>
+  </div>
+</div>
+<p class="source">Found by static_perf_audit.py (<code>query-in-loop</code>) in a real SwiftUI + Compose app. Timings measured in a Swift 6 harness with 100 ms mock requests (peak concurrency 4, order kept, one failure isolated). On-device timing not verified.</p>
+<script>
+  const lanes = (id, rows) => { const el = document.getElementById(id);
+    rows.forEach(r => { const lane = document.createElement("div"); lane.className = "lane";
+      r.forEach(([s, w, k]) => { const q = document.createElement("div"); q.className = "req " + k; q.style.left = (s / 2.4 * 100) + "%"; q.style.width = (w / 2.4 * 100) + "%"; lane.append(q); });
+      el.append(lane); });
+    const ax = document.createElement("div"); ax.className = "axis"; ax.innerHTML = "<span>0 s</span><span>0.6 s</span><span>1.2 s</span><span>1.8 s</span><span>2.4 s</span>"; el.append(ax); };
+  const serial = []; for (let i = 0; i < 12; i++) serial.push([[i * 0.2, 0.095, "r"], [i * 0.2 + 0.1, 0.095, "p"]]);
+  lanes("serial", serial);
+  const par = []; for (let i = 0; i < 12; i++) { const s = Math.floor(i / 4) * 0.105; par.push([[s, 0.1, "r half-top"], [s, 0.1, "p half-bot"]]); }
+  lanes("parallel", par);
+</script>
+</body></html>

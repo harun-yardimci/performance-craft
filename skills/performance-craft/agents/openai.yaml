@@ -1,0 +1,4 @@
+interface:
+  display_name: "Performance Craft"
+  short_description: "Measure and fix web, app and API performance"
+  default_prompt: "Use $performance-craft to measure this product's performance, find the biggest bottlenecks and fix them with before/after numbers."

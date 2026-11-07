@@ -1,0 +1,74 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.card { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-border); padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+h3 { font-size: 17px; letter-spacing: -.01em; }
+.code { font-size: 11px; padding: 12px 14px; white-space: pre-wrap; }
+.lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.lbl.b { color: var(--bad); } .lbl.a { color: var(--good); }
+.why { font-size: 13.5px; line-height: 1.45; color: #3f3f46; }
+.rule { font-size: 11.5px; color: var(--muted); }
+</style></head><body>
+<div class="grid3">
+  <div class="card">
+    <h3>SwiftUI: work inside <code>body</code></h3>
+    <span class="lbl b">Before</span>
+<div class="code">var body: some View {
+  <span class="hl">let f = DateFormatter()</span>
+  <span class="k">if let</span> img = <span class="hl">UIImage(data: photo.data)</span> {
+    Image(uiImage: img)
+  }
+}</div>
+    <span class="lbl a">After</span>
+<div class="code"><span class="ok">static let parser: DateFormatter = { … }()</span>
+<span class="ok">@State private var headerImage: UIImage?</span>
+<span class="c">// decoded once in init, reused by body</span></div>
+    <p class="why"><code>body</code> runs on every state change. A slider that changes portion size re-decoded a full-size photo on each step.</p>
+    <span class="rule">Rule: <code>formatter-in-body</code> · confirm with the SwiftUI instrument</span>
+  </div>
+  <div class="card">
+    <h3>Long lists that render every row</h3>
+    <span class="lbl b">Before</span>
+<div class="code">ScrollView {
+  <span class="hl">VStack</span> {
+    ForEach(meals) { MealRow($0) }
+  }
+}
+Column(Modifier.<span class="hl">verticalScroll</span>(state)) {
+  meals.forEach { MealRow(it) }
+}</div>
+    <span class="lbl a">After</span>
+<div class="code">ScrollView {
+  <span class="ok">LazyVStack</span> {
+    ForEach(meals) { MealRow($0) }
+  }
+}
+<span class="ok">LazyColumn</span> {
+  items(meals, <span class="ok">key = { it.id }</span>) {
+    MealRow(it)
+  }
+}</div>
+    <p class="why">Fine for ten rows, a hang for a thousand. The skill only flags lists that grow with user data.</p>
+    <span class="rule">Rules: <code>list-not-virtualized</code>, <code>list-key</code></span>
+  </div>
+  <div class="card">
+    <h3>Android release build</h3>
+    <span class="lbl b">Before</span>
+<div class="code">release {
+  isMinifyEnabled = true
+  <span class="hl">// no isShrinkResources</span>
+  <span class="hl">// no Baseline Profile</span>
+}</div>
+    <span class="lbl a">After</span>
+<div class="code">release {
+  isMinifyEnabled = true
+  <span class="ok">isShrinkResources = true</span>
+  <span class="c">// + res/raw/keep.xml</span>
+}
+plugins { id(<span class="s">"androidx.baselineprofile"</span>) }</div>
+    <p class="why">Resources looked up by name (<code>getIdentifier</code>) must be listed in <code>keep.xml</code>, or the shrinker removes them. Baseline Profiles precompile startup code.</p>
+    <span class="rule">Rules: <code>release-not-minified</code>, <code>no-baseline-profile</code></span>
+  </div>
+</div>
+</body></html>

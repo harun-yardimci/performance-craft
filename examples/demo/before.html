@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln &amp; Co. (before)</title>
+<link rel="stylesheet" href="before.css">
+<script src="analytics.js"></script>
+<script src="vendor.js"></script>
+</head><body>
+<header><span class="logo">Kiln &amp; Co.</span><span>Cart (0)</span></header>
+<section class="hero" id="hero"><h1>Handmade ceramics, fired in small batches</h1></section>
+<main class="grid" id="grid"></main>
+<p class="status" id="status"></p>
+<script>
+  // Hero is set by JS after DOMContentLoaded: the browser can't discover it from the HTML.
+  window.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("hero").style.backgroundImage = "url(img/hero.jpg)";
+    const items = [["Speckled mug", 28], ["Stoneware bowl", 42], ["Bud vase", 35], ["Serving plate", 56]];
+    document.getElementById("grid").innerHTML = items.map(([n, p], i) =>
+      `<article class="card"><img src="img/p${i + 1}.jpg" alt="${n}"><div><span>${n}</span><b>$${p}</b></div><button class="add">Add to cart</button></article>`).join("");
+    document.querySelectorAll(".add").forEach(b => b.addEventListener("click", () => {
+      // Recalculates "recommendations" synchronously before showing anything.
+      const t = performance.now(); while (performance.now() - t < 320) {}
+      document.getElementById("status").textContent = "Added to cart";
+    }));
+  });
+  // Promo bar arrives late and pushes everything down.
+  setTimeout(() => {
+    const bar = document.createElement("div"); bar.className = "promo"; bar.textContent = "Free shipping over $60 this week";
+    document.body.prepend(bar);
+  }, 900);
+</script>
+</body></html>

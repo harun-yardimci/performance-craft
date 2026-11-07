@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.card { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-border); padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+h3 { font-size: 17px; letter-spacing: -.01em; }
+.code { font-size: 11px; padding: 12px 14px; white-space: pre-wrap; }
+.pair { display: flex; flex-direction: column; gap: 8px; }
+.lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.lbl.b { color: var(--bad); } .lbl.a { color: var(--good); }
+.res { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.res .x { font-size: 22px; font-weight: 700; white-space: nowrap; }
+.q { display: flex; gap: 2px; flex-wrap: wrap; }
+.q i { width: 9px; height: 14px; border-radius: 2px; background: #fca5a5; }
+.q i.one { background: #86efac; }
+.kind { font-size: 11.5px; color: var(--muted); }
+</style></head><body>
+<div class="grid3">
+  <div class="card">
+    <h3>N+1 queries</h3>
+    <div class="pair"><span class="lbl b">Before</span>
+<div class="code">$orders = Order::latest()->paginate(50);
+<span class="k">foreach</span> ($orders <span class="k">as</span> $o) {
+  <span class="hl">$o->customer->name</span>; <span class="c">// 1 query per row</span>
+}</div>
+      <div class="q" id="nq"></div>
+      <div class="res"><span class="x poor">51 queries</span><span class="sub">per page</span></div>
+    </div>
+    <div class="pair"><span class="lbl a">After</span>
+<div class="code">Order::<span class="ok">with('customer')</span>->latest()->paginate(50);</div>
+      <div class="q"><i class="one"></i><i class="one"></i></div>
+      <div class="res"><span class="x good">2 queries</span><span class="sub">per page</span></div>
+    </div>
+    <span class="kind">Illustrative. Rule: <code>query-in-loop</code>; confirm with query counts or a trace.</span>
+  </div>
+  <div class="card">
+    <h3>Cold starts on the first request</h3>
+    <div class="pair"><span class="lbl b">Before</span>
+      <div class="bar-row" style="grid-template-columns:60px 1fr 64px"><span class="lbl b" style="text-transform:none">1st</span><div class="bar"><div class="seg" style="width:100%;background:#dc2626"></div></div><span class="val poor">4.72 s</span></div>
+      <div class="bar-row" style="grid-template-columns:60px 1fr 64px"><span class="lbl" style="color:#71717a;text-transform:none">2nd–20th</span><div class="bar"><div class="seg" style="width:7%;background:#a1a1aa"></div></div><span class="val">0.33 s</span></div>
+    </div>
+    <div class="pair"><span class="lbl a">After</span>
+<div class="code">export const api = onRequest(
+  { secrets, <span class="ok">minInstances: 1</span> }, app);</div>
+    </div>
+    <span class="kind">Real: 20 sequential <code>curl</code> requests to a production serverless API (TTFB). One warm instance is billed while idle; confirm with the platform's startup-latency metric after deploy.</span>
+  </div>
+  <div class="card">
+    <h3>Calls without a timeout</h3>
+    <div class="pair"><span class="lbl b">Before</span>
+<div class="code">const res = await fetch(storeApiUrl, {
+  method, headers,
+}); <span class="hl">// waits up to the 30 s function limit</span></div>
+    </div>
+    <div class="pair"><span class="lbl a">After</span>
+<div class="code">const res = await fetch(storeApiUrl, {
+  method, headers,
+  <span class="ok">signal: AbortSignal.timeout(10_000)</span>,
+});</div>
+    </div>
+    <div class="res"><span class="x poor">30 s</span><span class="sub">→</span><span class="x good">10 s</span><span class="sub">worst case, retried as transient</span></div>
+    <span class="kind">Real: rule <code>no-timeout</code> on a payment-verification path. High on sight, whatever else is going on.</span>
+  </div>
+</div>
+<script>
+  const q = document.getElementById("nq"); for (let i = 0; i < 51; i++) { const e = document.createElement("i"); if (i === 0) e.className = "one"; q.append(e); }
+</script>
+</body></html>

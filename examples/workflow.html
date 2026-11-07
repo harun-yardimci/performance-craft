@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.panel { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-border); padding: 28px; display: flex; flex-direction: column; gap: 22px; }
+.steps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.step { background: #fafafa; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; position: relative; }
+.step .n { width: 26px; height: 26px; border-radius: 50%; background: #18181b; color: #fff; font-size: 13px; font-weight: 700; display: grid; place-items: center; }
+.step b { font-size: 16px; }
+.step p { font-size: 12.5px; line-height: 1.45; color: #52525b; }
+.step.loop { box-shadow: inset 0 0 0 2px #16a34a; }
+.row2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; }
+.box { background: #fafafa; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.box h4 { font-size: 14px; }
+.order { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.order span.o { background: #fff; box-shadow: 0 0 0 1px var(--line); border-radius: 999px; padding: 5px 11px; font-weight: 600; }
+.order .arr { color: #a1a1aa; }
+ol { padding-left: 18px; font-size: 13px; line-height: 1.6; color: #3f3f46; }
+</style></head><body>
+<div class="panel">
+  <div class="steps">
+    <div class="step"><span class="n">1</span><b>Frame</b><p>What is slow, for whom, on which device and network. Pick the metric that matches the complaint.</p></div>
+    <div class="step"><span class="n">2</span><b>Baseline</b><p>Measure before touching code: perf_audit.mjs, static scan, platform profilers, endpoint timing.</p></div>
+    <div class="step"><span class="n">3</span><b>Diagnose</b><p>Symptom → cause (file:line, request, query) → fix → expected effect, from metric breakdowns.</p></div>
+    <div class="step"><span class="n">4</span><b>Prioritize</b><p>Impact × confidence ÷ effort. “High on sight” items first.</p></div>
+    <div class="step"><span class="n">5</span><b>Fix</b><p>The cheapest change that solves the measured problem, keeping behavior identical.</p></div>
+    <div class="step loop"><span class="n" style="background:#16a34a">6</span><b>Verify</b><p>Same command, same conditions, medians and spread. Nothing else may regress.</p></div>
+  </div>
+  <div class="row2">
+    <div class="box"><h4>Cheapest fix first</h4>
+      <div class="order"><span class="o">Delete work</span><span class="arr">→</span><span class="o">Do it less often</span><span class="arr">→</span><span class="o">Later or elsewhere</span><span class="arr">→</span><span class="o">Faster</span><span class="arr">→</span><span class="o">More hardware</span></div>
+      <p class="sub">Unused code and duplicate requests go before caching; caching before rewrites; rewrites before bigger servers.</p>
+    </div>
+    <div class="box"><h4>Priority order</h4>
+      <ol><li>Failures: timeouts, hangs, ANRs, OOM, endpoints that fall over</li><li>The metric the user complained about; vitals in “poor”</li><li>Systemic waste: N+1, unbounded queries, no caching, heavy JS</li><li>Micro-optimizations, only when a profile shows them hot</li></ol>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.stage { min-height: 0; flex-direction: column; align-items: stretch; gap: 14px; padding: 24px; }
+.tl { position: relative; height: 34px; background: #fff; border-radius: 8px; box-shadow: 0 0 0 1px rgba(0,0,0,.06); }
+.blk { position: absolute; top: 5px; height: 24px; border-radius: 5px; font-size: 11.5px; font-weight: 600; color: #fff; display: grid; place-items: center; white-space: nowrap; overflow: hidden; }
+.h { background: #dc2626; } .pt { background: #a855f7; } .ok { background: #16a34a; } .later { background: #d4d4d8; color: #3f3f46; }
+.mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #18181b; }
+.big.poor { color: var(--bad); } .big.good { color: var(--good); }
+.code { font-size: 12.5px; }
+</style></head><body>
+<div class="compare">
+  <div class="side before-side">
+    <span class="tag before">Before</span>
+    <div class="stage">
+      <div><span class="big poor">448 ms</span> <span class="sub">click → next paint (worst of 3)</span></div>
+      <div class="tl"><div class="blk h" style="left:0;width:71%">handlers 321 ms</div><div class="blk pt" style="left:71.5%;width:28%">paint 126 ms</div><div class="mark" style="left:99.5%"></div></div>
+      <div class="axis"><span>tap</span><span>user sees “Added to cart”</span></div>
+<div class="code">button.onclick = () =&gt; {
+  <span class="hl">recalculateRecommendations()</span> <span class="c">// 320 ms</span>
+  status.textContent = <span class="s">"Added to cart"</span>
+}</div>
+    </div>
+    <ul class="notes">
+      <li><span class="num">1</span>All the work runs before the screen can change, so the tap feels ignored for almost half a second.</li>
+    </ul>
+  </div>
+  <div class="side after-side">
+    <span class="tag after">After</span>
+    <div class="stage">
+      <div><span class="big good">72 ms</span> <span class="sub">click → next paint (median of 3)</span></div>
+      <div class="tl"><div class="blk ok" style="left:0;width:16%">72</div><div class="mark" style="left:16%"></div><div class="blk later" style="left:17%;width:82%">rest in 40 ms chunks, after the paint</div></div>
+      <div class="axis"><span>tap</span><span></span></div>
+<div class="code">button.onclick = async () =&gt; {
+  status.textContent = <span class="s">"Added to cart"</span>
+  <span class="ok">await scheduler.yield()</span> <span class="c">// paint now</span>
+  <span class="k">for</span> (const chunk <span class="k">of</span> work) { run(chunk); <span class="k">await</span> yieldToMain() }
+}</div>
+    </div>
+    <ul class="notes">
+      <li><span class="num">1</span>Visible feedback first, then yield to the browser; the rest runs in small chunks that never block input.</li>
+    </ul>
+  </div>
+</div>
+<p class="source">INP parts (input delay · handlers · presentation) from Event Timing, grouped per interaction by perf_audit.mjs --interact. Mobile profile, examples/demo.</p>
+</body></html>

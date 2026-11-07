@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+body { padding: 0; width: 1280px; background: #0b0b0f; }
+.hero { height: 520px; padding: 64px 72px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; background: #0b0b0f; color: #fafafa; }
+h1 { font-size: 64px; font-weight: 750; letter-spacing: -.03em; margin: 0 0 16px; }
+.lead { font-size: 21px; line-height: 1.45; color: #d4d4d8; max-width: 540px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+.chip { font-size: 14px; padding: 7px 13px; border-radius: 999px; background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); color: #e4e4e7; }
+.works { margin-top: 22px; font-size: 14px; color: #a1a1aa; }
+.card { background: #fff; color: #18181b; border-radius: 18px; padding: 22px; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 24px 60px -12px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 14px; }
+.row { display: grid; grid-template-columns: 70px 1fr 1fr; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.row .k { font-size: 13px; font-weight: 700; color: #71717a; letter-spacing: .04em; }
+.row .b { font-size: 22px; font-weight: 700; color: #dc2626; text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: rgba(220,38,38,.45); }
+.row .a { font-size: 22px; font-weight: 700; color: #16a34a; }
+.head { display: flex; justify-content: space-between; align-items: center; }
+.t { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; }
+.t.b { background: #fef2f2; color: #dc2626; } .t.a { background: #f0fdf4; color: #16a34a; }
+.note { font-size: 12.5px; color: #71717a; }
+</style></head><body>
+<div class="hero">
+  <div>
+    <h1>Performance Craft</h1>
+    <p class="lead">Teaches your coding agent to find out why a site, app or API is slow, and prove the fix. It measures before it touches code, traces each finding to a file, request or query, fixes the cheapest cause first, and re-measures under the same conditions.</p>
+    <div class="chips"><span class="chip">Core Web Vitals</span><span class="chip">JS &amp; bundles</span><span class="chip">Images &amp; fonts</span><span class="chip">Caching</span><span class="chip">iOS</span><span class="chip">Android</span><span class="chip">React Native &amp; Flutter</span><span class="chip">APIs &amp; databases</span></div>
+    <p class="works">An agent skill for Claude Code and Codex</p>
+  </div>
+  <div class="card">
+    <div class="head"><b>Demo store, mobile (Slow 4G, 4× CPU)</b><span><span class="t b">Before</span> <span class="t a">After</span></span></div>
+    <div class="row"><span class="k">LCP</span><span class="b">28.1 s</span><span class="a">2.8 s</span></div>
+    <div class="row"><span class="k">FCP</span><span class="b">3.5 s</span><span class="a">0.65 s</span></div>
+    <div class="row"><span class="k">CLS</span><span class="b">0.154</span><span class="a">0.000</span></div>
+    <div class="row"><span class="k">CLICK</span><span class="b">424 ms</span><span class="a">72 ms</span></div>
+    <div class="row"><span class="k">WEIGHT</span><span class="b">4.6 MB</span><span class="a">276 KB</span></div>
+    <p class="note">Medians of 3 cold runs, measured with the skill's perf_audit.mjs on examples/demo.</p>
+  </div>
+</div>
+</body></html>

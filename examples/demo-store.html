@@ -1,0 +1,50 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.stage { min-height: 0; padding: 20px; gap: 18px; align-items: flex-start; }
+.phone { width: 200px; border-radius: 22px; overflow: hidden; box-shadow: 0 0 0 6px #18181b, 0 18px 40px -16px rgba(0,0,0,.4); flex: none; background: #fff; }
+.phone img { width: 100%; display: block; }
+.side-metrics { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+</style></head><body>
+<div class="compare">
+  <div class="side before-side">
+    <span class="tag before">Before</span>
+    <div class="stage">
+      <div class="phone"><img src="img/demo-before-mobile.png" alt=""></div>
+      <div class="side-metrics">
+        <div class="metric"><span class="k">LCP</span><span class="v poor">28.1 s</span><span class="r poor">poor</span></div>
+        <div class="metric"><span class="k">CLS</span><span class="v ni">0.154</span><span class="r ni">needs improvement</span></div>
+        <div class="metric"><span class="k">Click → paint</span><span class="v ni">424 ms</span><span class="r ni">needs improvement</span></div>
+        <div class="metric"><span class="k">Transferred</span><span class="v poor">4579 KB</span><span class="r poor">budget 1600 KB</span></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><span class="num">1</span><span>Hero is a CSS background set by JavaScript: found 3.5 s late, then a 1 MB JPEG.</span></li>
+      <li><span class="num">2</span><span>A 351 KB bundle (99% unused) and a sync third-party tag block the first paint.</span></li>
+      <li><span class="num">3</span><span>Product photos are 1600 px JPEGs shown at 178 px, with no width or height.</span></li>
+      <li><span class="num">4</span><span>A promo bar is inserted on top after 900 ms and pushes the page down.</span></li>
+      <li><span class="num">5</span><span>“Add to cart” runs 320 ms of work before it shows anything.</span></li>
+    </ul>
+  </div>
+  <div class="side after-side">
+    <span class="tag after">After</span>
+    <div class="stage">
+      <div class="phone"><img src="img/demo-after-mobile.png" alt=""></div>
+      <div class="side-metrics">
+        <div class="metric"><span class="k">LCP</span><span class="v ni">2.8 s</span><span class="r ni">needs improvement</span></div>
+        <div class="metric"><span class="k">CLS</span><span class="v good">0.000</span><span class="r good">good</span></div>
+        <div class="metric"><span class="k">Click → paint</span><span class="v good">72 ms</span><span class="r good">good</span></div>
+        <div class="metric"><span class="k">Transferred</span><span class="v good">276 KB</span><span class="r good">−94%</span></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><span class="num">1</span><span>Hero is an <code>&lt;img&gt;</code> in the HTML with <code>fetchpriority="high"</code> and a WebP <code>srcset</code>.</span></li>
+      <li><span class="num">2</span><span>Only the page's own 1 KB script, deferred; the tag loads when the page is idle.</span></li>
+      <li><span class="num">3</span><span>480 px WebP photos with dimensions and <code>loading="lazy"</code>.</span></li>
+      <li><span class="num">4</span><span>The promo bar's space is reserved, so nothing moves.</span></li>
+      <li><span class="num">5</span><span>The click shows “Added” first, then yields and does the rest in chunks.</span></li>
+    </ul>
+  </div>
+</div>
+<p class="source">Real numbers: medians of 3 cold runs per page with <code>perf_audit.mjs --interact ".add"</code>, mobile profile (Slow 4G, 4× CPU). Sources and full reports in examples/demo.</p>
+</body></html>

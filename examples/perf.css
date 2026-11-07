@@ -1,0 +1,23 @@
+/* Extras on top of shared.css for the performance mockups */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.metric { background: #fafafa; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.metric .k { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.metric .v { font-size: 24px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.metric .r { font-size: 12px; font-weight: 600; }
+.poor { color: var(--bad); } .ni { color: #b45309; } .good { color: var(--good); }
+.bar-row { display: grid; grid-template-columns: 110px 1fr 84px; align-items: center; gap: 12px; font-size: 14px; }
+.bar-row .lbl { color: #3f3f46; font-weight: 600; }
+.bar-row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.bar { height: 26px; border-radius: 7px; display: flex; overflow: hidden; background: #f4f4f5; }
+.seg { height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: #52525b; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1.6; background: #18181b; color: #e4e4e7; border-radius: 12px; padding: 16px 18px; white-space: pre; overflow: hidden; }
+.code .c { color: #71717a; } .code .k { color: #f472b6; } .code .s { color: #86efac; } .code .hl { background: rgba(239,68,68,.22); border-radius: 3px; } .code .ok { background: rgba(34,197,94,.2); border-radius: 3px; }
+.lane { position: relative; height: 22px; border-radius: 6px; background: #f4f4f5; }
+.req { position: absolute; top: 3px; height: 16px; border-radius: 4px; }
+.req.r { background: #2563eb; } .req.p { background: #93c5fd; }
+.axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.big { font-size: 40px; font-weight: 750; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.sub { font-size: 14px; color: var(--muted); }
+.source { font-size: 12.5px; color: var(--muted); margin-top: 18px; }

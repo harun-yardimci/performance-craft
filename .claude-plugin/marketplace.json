@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "performance-craft",
+  "description": "Performance Craft agent skill",
+  "owner": {
+    "name": "Harun Yardimci",
+    "url": "https://harun-yardimci.github.io"
+  },
+  "plugins": [
+    {
+      "name": "performance-craft",
+      "description": "Measure, diagnose and fix performance across web, mobile apps and their backends, with before/after numbers.",
+      "version": "1.0.0",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

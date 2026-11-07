@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="perf.css">
+<style>
+.panel { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow-border); padding: 28px; display: flex; flex-direction: column; gap: 18px; }
+h3 { font-size: 20px; letter-spacing: -.01em; }
+.c1 { background: #a1a1aa; } .c2 { background: #f59e0b; } .c3 { background: #2563eb; } .c4 { background: #a855f7; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+</style></head><body>
+<div class="panel">
+  <h3>Where the LCP time goes: the four sub-parts, same scale</h3>
+  <div class="legend"><span><i class="c1"></i>TTFB (server)</span><span><i class="c2"></i>Resource load delay (found late)</span><span><i class="c3"></i>Resource load time (bytes)</span><span><i class="c4"></i>Render delay</span></div>
+  <div class="bar-row"><span class="lbl">Before</span><div class="bar"><div class="seg c1" style="width:0.1%"></div><div class="seg c2" style="width:12.35%"></div><div class="seg c3" style="width:87.5%"></div><div class="seg c4" style="width:0.3%"></div></div><span class="val poor">28 112 ms</span></div>
+  <div class="bar-row"><span class="lbl">After</span><div class="bar"><div class="seg c1" style="width:0.1%"></div><div class="seg c2" style="width:2.15%"></div><div class="seg c3" style="width:7.7%"></div><div class="seg c4" style="width:0.3%"></div><div style="flex:1"></div></div><span class="val ni">2 772 ms</span></div>
+  <div class="axis"><span>0 s</span><span>7 s</span><span>14 s</span><span>21 s</span><span>28 s</span></div>
+  <div class="cols">
+    <ul class="notes before-side">
+      <li><span class="num">1</span><span><b>Load delay 3 471 ms:</b> the hero is a CSS background set by JavaScript after the blocking scripts, so the preload scanner can't see it.</span></li>
+      <li><span class="num">2</span><span><b>Load time 24 620 ms:</b> a 1 MB, 2400 px JPEG on a Slow 4G link, competing with four 800 KB product photos.</span></li>
+    </ul>
+    <ul class="notes after-side">
+      <li><span class="num">1</span><span><b>Load delay 603 ms:</b> a real <code>&lt;img fetchpriority="high"&gt;</code> in the server HTML; nothing blocks the parser.</span></li>
+      <li><span class="num">2</span><span><b>Load time 2 163 ms:</b> 70 KB WebP from <code>srcset</code>; product photos are lazy and 50 KB each. Next lever: a 600 px mobile size.</span></li>
+    </ul>
+  </div>
+  <p class="source">perf_audit.mjs splits every LCP into these sub-parts so the agent fixes the biggest one first, instead of guessing. Mobile profile, medians of 3 runs, examples/demo.</p>
+</div>
+</body></html>

@@ -1,0 +1,13 @@
+{
+  "name": "performance-craft",
+  "version": "1.0.0",
+  "description": "Measure, diagnose and fix performance across web, mobile apps and their backends, with before/after numbers.",
+  "author": {
+    "name": "Harun Yardimci",
+    "url": "https://harun-yardimci.github.io"
+  },
+  "homepage": "https://github.com/harun-yardimci/performance-craft",
+  "repository": "https://github.com/harun-yardimci/performance-craft",
+  "license": "MIT",
+  "keywords": ["performance", "core-web-vitals", "lighthouse", "ios", "android", "backend", "database", "skill"]
+}
