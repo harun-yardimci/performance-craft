@@ -19,6 +19,8 @@ It covers the whole path a user waits on:
 
 It ships with three measuring tools: a **lab audit** that drives your installed Chrome under mobile throttling and compares before/after runs with a noise verdict, a **field data** reader for Core Web Vitals of real users (CrUX), and a **static scanner** that finds performance leads in code across nine stacks.
 
+**Companion skill:** [interface-craft](https://github.com/harun-yardimci/interface-craft) reviews the same product from the user's side: task flow, microcopy, empty/error/loading states, accessibility and visual polish. The two are built the same way and hand off to each other: performance-craft defers to interface-craft for how a loading state should look, and interface-craft defers here when a screen is slow rather than unclear. Install both for a full review.
+
 ---
 
 ## Contents
