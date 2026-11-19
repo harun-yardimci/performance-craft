@@ -35,6 +35,17 @@ Rules (language in brackets):
                        without loading="lazy" [HTML/JSX]
   raw-img-in-next      <img> in a Next.js project instead of next/image
   google-fonts-link    Fonts loaded from fonts.googleapis.com (extra connection; self-host)
+  srcset-no-sizes      <img>/<source> srcset with w descriptors and no sizes: the browser assumes 100vw and
+                       downloads a candidate far wider than the rendered image [HTML/JSX]
+  css-import           @import of another stylesheet in a .css file: if it survives the build
+                       it is a serial request chain before first render (bundle it or use
+                       <link>); package imports such as "tailwindcss" are skipped
+  unload-handler       unload / onunload handlers: make the page ineligible for the
+                       back/forward cache; use pagehide or visibilitychange
+  cache-no-store       Cache-Control: no-store set as a response header in code: on the HTML
+                       document it can keep the page out of bfcache (browser-dependent);
+                       keep it for sensitive pages, else no-cache / max-age=0. Server config
+                       files (nginx, vercel.json, headers files) are not scanned
   big-asset            Images > 300 KB, PNG photos > 150 KB, TTF/OTF web fonts, GIFs > 200 KB
                        in the repository's asset folders
   list-not-virtualized ScrollView + .map (RN), ScrollView { VStack { ForEach (SwiftUI),
@@ -64,7 +75,7 @@ import sys
 SKIP_DIRS = {".git", "node_modules", "build", "dist", ".next", "DerivedData", "Pods", ".build", "out",
              "coverage", ".gradle", "vendor", ".turbo", ".svelte-kit", ".nuxt", ".output", "__pycache__",
              ".venv", "venv", "env", ".dart_tool", "site-packages", "dist-packages", "bower_components", "third_party", "third-party", "vendors", "Carthage", "SourcePackages", ".swiftpm", "target", "storage", "bootstrap", ".expo", "ios/Pods", "public/build"}
-CODE_EXT = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".php", ".py", ".swift", ".kt",
+CODE_EXT = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".php", ".py", ".swift", ".kt", ".css",
             ".kts", ".dart", ".html", ".gradle", ".java"}
 ASSET_DIRS = ("public", "static", "assets", "src", "app", "res", "Assets.xcassets", "resources", "images", "img")
 IMG_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".tif", ".tiff"}
@@ -86,7 +97,7 @@ NON_APP = re.compile(r"/(docs?|design|screenshots?|outputs?|work|quality|evidenc
 
 RULES = ["query-in-loop", "unbounded-query", "connection-per-call", "sync-io", "no-timeout", "serial-awaits", "ai-not-streamed",
          "list-not-virtualized", "formatter-in-body", "observedobject-init", "search-no-debounce", "polling", "heavy-dependency",
-         "heavy-import", "big-asset", "img-no-dimensions", "raw-img-in-next", "google-fonts-link", "list-key", "geometry-in-list",
+         "heavy-import", "big-asset", "img-no-dimensions", "raw-img-in-next", "google-fonts-link", "srcset-no-sizes", "css-import", "unload-handler", "cache-no-store", "list-key", "geometry-in-list",
          "anyview", "collect-lifecycle", "release-not-minified", "resources-not-shrunk", "no-baseline-profile"]
 
 
@@ -149,6 +160,27 @@ def loop_bodies(lines, i, n=8):
     return out
 
 
+def scan_css(s, path, text):
+    """Stylesheets only get stylesheet rules (code rules would read CSS as SQL or comments)."""
+    clean = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    for i, l in enumerate(clean.split("\n")):
+        m = re.match(r"\s*@import\s+(url\(\s*)?['\"]?([^'\")\s;]+)", l)
+        if not m:
+            continue
+        target = m.group(2)
+        if "fonts.googleapis.com" in target:
+            s.add("google-fonts-link", path, i + 1, l)
+        # package imports (`@import "tailwindcss"`) are resolved by the build, not fetched by the browser
+        elif target.startswith(("http", "//")) or target.endswith(".css") or m.group(1):
+            s.add("css-import", path, i + 1, l + "  (check whether it survives the build)")
+
+
+def attr(tag, name):
+    """Value of an exact attribute (not data-<name>) in a tag, or None."""
+    m = re.search(r"(?<![\w-])%s\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|\{([^}]*)\}|([^\s>]+))" % name, tag, re.I)
+    return None if not m else next(g for g in m.groups() if g is not None)
+
+
 def scan_code(s, path, text, ext, ctx):
     lines = text.split("\n")
     is_js = ext in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte"}
@@ -161,6 +193,9 @@ def scan_code(s, path, text, ext, ctx):
     if is_test or NON_APP.search(low) or VENDORED.search(low):
         return
     if ext == ".html" and not re.search(r"/(public|static|src|app|templates|views|pages|www)/|/index\.html$", low):
+        return
+    if ext == ".css":
+        scan_css(s, path, text)
         return
 
     # ---- loops: N+1 / serial requests
@@ -261,8 +296,25 @@ def scan_code(s, path, text, ext, ctx):
                 s.add("img-no-dimensions", path, n, tag)
             if is_next and is_js:
                 s.add("raw-img-in-next", path, n, tag)
+        if (is_js or ext in {".html", ".php"}) and re.search(r"<(img|source)\b", l):
+            for mt in re.finditer(r"<(img|source)\b", l):
+                tag = " ".join([l[mt.start():]] + lines[i + 1:i + 8]); tag = tag[:tag.find(">") + 1] if ">" in tag else tag
+                val = attr(tag, "srcset") or attr(tag, "srcSet")
+                if val and re.search(r"\d+w\b", val) and attr(tag, "sizes") is None:
+                    s.add("srcset-no-sizes", path, n, tag)
         if re.search(r"(href=|@import|url\()\s*['\"]?https://fonts\.googleapis\.com", l):
             s.add("google-fonts-link", path, n, l)
+
+        # back/forward cache blockers
+        if (is_js or ext in {".html", ".php"}) and re.search(r"addEventListener\(|\bonunload\s*=|\$\(\s*window\s*\)", l):
+            win = " ".join(x.strip() for x in lines[i:i + 3])
+            if re.search(r"""addEventListener\(\s*['"]unload['"]|\bonunload\s*=|\$\(\s*window\s*\)\.(on\(\s*['"]unload|unload\()""", win):
+                s.add("unload-handler", path, n, l)
+        if "no-store" in l and not re.search(r"\bcache\s*:\s*['\"]no-store", l):
+            ctxw = " ".join(lines[max(0, i - 3):i + 1])
+            # response headers only: a request header on fetch() does not affect the page
+            if re.search(r"cache-control|cachecontrol|http-equiv", ctxw, re.I) and not re.search(r"\bfetch\(|axios|\$http|request\(", ctxw):
+                s.add("cache-no-store", path, n, l + "  (matters only on HTML document responses)")
 
         # lists
         if ext in {".jsx", ".tsx", ".js"} and re.search(r"key=\{\s*(index|i|idx)\s*\}", l):
