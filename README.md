@@ -130,10 +130,10 @@ The checklist in [`references/quick-wins.md`](skills/performance-craft/reference
 
 <table>
 <tr><th>Layer</th><th>Examples of what it looks for</th></tr>
-<tr><td><b>Web loading</b></td><td>LCP sub-parts; the LCP image lazy-loaded, set by JS or as a CSS background; render-blocking CSS/JS; slow TTFB and missing HTML caching; redirects; HTTP/1.1; uncompressed text; short cache lifetimes</td></tr>
+<tr><td><b>Web loading</b></td><td>LCP sub-parts; the LCP image lazy-loaded, set by JS or as a CSS background; render-blocking CSS/JS and <code>@import</code> chains; misused resource hints and <code>fetchpriority</code>; slow TTFB and missing HTML caching; redirects; HTTP/1.1; uncompressed text; short cache lifetimes; pages kept out of the back/forward cache (<code>unload</code>, <code>no-store</code>); speculation rules for the next page</td></tr>
 <tr><td><b>JavaScript</b></td><td>Total and per-file size, unused JS/CSS at load (coverage), long tasks and long animation frames by script, third-party cost, hydration of whole layouts, barrel files and whole-library imports</td></tr>
 <tr><td><b>Images and fonts</b></td><td>Oversized images (rendered width × DPR), legacy formats, missing dimensions, below-the-fold images loaded eagerly, too many font files, missing <code>font-display</code>, Google Fonts links, Turkish subsets (latin-ext)</td></tr>
-<tr><td><b>Responsiveness</b></td><td>INP parts (input delay, handlers, presentation), scroll jank, DOM size, layout thrashing, expensive CSS, re-renders</td></tr>
+<tr><td><b>Responsiveness</b></td><td>INP parts (input delay, handlers, presentation), where long work goes (sync, sliced with <code>scheduler.yield()</code>, or a Web Worker), scroll jank, DOM size, layout thrashing, expensive CSS, re-renders</td></tr>
 <tr><td><b>Visual stability</b></td><td>CLS session windows with the elements that moved, late banners and embeds, images without dimensions, font swaps</td></tr>
 <tr><td><b>iOS</b></td><td>Launch work before the first frame, main-thread I/O and hangs, Swift concurrency hops, work and formatters in <code>body</code>, broad observation, unbounded stacks, image downsampling, SwiftData fetch limits, retain cycles, energy</td></tr>
 <tr><td><b>Android</b></td><td>Startup (Baseline Profiles, R8, lazy SDK init), StrictMode violations, Compose stability and deferred reads, lazy lists with keys, <code>collectAsStateWithLifecycle</code>, gfxinfo/Perfetto frame stats, Play vitals thresholds</td></tr>
@@ -181,6 +181,10 @@ Source: [web.dev: Web Vitals](https://web.dev/articles/vitals).
 
 - **Android:** Play Console bad-behavior thresholds (user-perceived ANR rate 0.47%, crash rate 1.09%; slow cold start ≥ 5 s), [Baseline Profiles](https://developer.android.com/topic/performance/baselineprofiles/overview), [Macrobenchmark](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-overview), [Compose performance](https://developer.android.com/develop/ui/compose/performance).
 - **iOS:** [Improving your app's performance](https://developer.apple.com/documentation/xcode/improving-your-app-s-performance): hangs (main thread blocked ≥ 250 ms), launch time, hitches, memory and energy; measured on release builds and real devices.
+
+### Modern web platform guidance
+
+Source: Google Chrome, [Modern Web Guidance](https://developer.chrome.com/docs/modern-web-guidance), and [Baseline](https://web.dev/baseline) status for browser support. The web reference uses its guidance on INP work placement, `fetchpriority` and resource hints, speculation rules, service worker caching strategies, bfcache and beacons. Newer APIs ship behind a feature check, against the project's Baseline target (Baseline Widely available when none is stated).
 
 ### House rules
 
@@ -417,7 +421,8 @@ Real output on [`examples/static-demo`](examples/static-demo), a small Laravel +
 | Group | Rules |
 |---|---|
 | Backend and data | `query-in-loop` · `serial-awaits` · `unbounded-query` · `no-timeout` · `connection-per-call` · `sync-io` · `ai-not-streamed` · `polling` · `search-no-debounce` |
-| Bundles and assets | `heavy-dependency` · `heavy-import` · `img-no-dimensions` · `raw-img-in-next` · `google-fonts-link` · `big-asset` |
+| Bundles and assets | `heavy-dependency` · `heavy-import` · `img-no-dimensions` · `srcset-no-sizes` · `raw-img-in-next` · `google-fonts-link` · `css-import` · `big-asset` |
+| Navigation | `unload-handler` · `cache-no-store` (both can keep the HTML page out of the back/forward cache) |
 | Lists and rendering | `list-not-virtualized` · `list-key` · `formatter-in-body` · `observedobject-init` · `anyview` · `geometry-in-list` · `collect-lifecycle` |
 | Android build | `release-not-minified` · `resources-not-shrunk` · `no-baseline-profile` |
 

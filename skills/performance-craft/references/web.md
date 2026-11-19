@@ -2,6 +2,8 @@
 
 Start from `perf_audit.mjs` output (or field data), pick the failing metric, and work through its causes in order. Confirm framework APIs against the project's versions in current docs.
 
+**Browser support target.** Before using a newer platform API (`scheduler.yield`, speculation rules, `content-visibility`, `fetchpriority`), read the project's target: a stated Baseline target ("Baseline 2024") in `AGENTS.md`/`CLAUDE.md`, `browserslist`, or analytics. None stated means Baseline Widely available. Most performance hints degrade safely (an unknown attribute or rule is ignored), so they can ship as progressive enhancement, but a JS API needs a feature check and a fallback path. Measure in the browsers that actually support the feature and say where the gain does not apply.
+
 ## LCP (Largest Contentful Paint) - "the page loads slowly"
 Fix the largest of the four sub-parts first (reported by `perf_audit.mjs`):
 
@@ -23,13 +25,16 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 | Processing | Expensive handlers: big state updates, synchronous filtering/sorting of large arrays, JSON parsing, analytics in the handler | Do the visible update first and defer the rest (`await scheduler.yield()` / `requestAnimationFrame` + `setTimeout`), `startTransition` / `useDeferredValue`, move heavy work to a Web Worker, debounce input handlers |
 | Presentation | Large re-render, huge DOM, layout thrashing (read-write-read of layout), expensive CSS (big blur/shadows), forced synchronous layout | Smaller render scope (memoization, split components/state), virtualization, `content-visibility: auto`, batch DOM reads before writes, avoid animating layout properties |
 
+**Where the work goes, by measured duration** (a starting rule, not a law): under ~50 ms, keep it synchronous; ~50–250 ms, slice it and yield between slices; over ~250 ms, or anything that grows with user data, move it to a Web Worker. Yield with `scheduler.yield()` behind a feature check, falling back to `new Promise(r => setTimeout(r, 0))`. The difference matters: the continuation after `scheduler.yield()` is queued with boosted priority within its priority level, so it usually resumes before other pending tasks of that level, while a `setTimeout(0)` continuation waits behind whatever else is queued (and timers can be clamped), so a busy page can delay the rest of the work. Update the visible state first (pressed state, spinner, optimistic row), then yield so the browser gets a chance to render it, then do the rest; a DOM change does not paint until the current task ends. Avoid `setInterval` work that can pile up behind long tasks.
+
 ## CLS (Cumulative Layout Shift) - "things jump around"
 - Images/video/iframes without dimensions → `width`/`height` attributes or `aspect-ratio`.
 - Ads, embeds, banners, cookie bars, "app install" bars injected above content → reserve space (`min-height`) or overlay them; insert new content below the viewport or on user action.
 - Web fonts swapping with different metrics → `size-adjust`/`ascent-override` fallbacks (`next/font` does this), `font-display: optional`.
 - Late-loading content above existing content (e.g. a fetched notice at the top) → skeleton with the final height.
 - Animations of `top/left/height/width` → animate `transform`/`opacity`.
-- Back/forward: ensure the page is eligible for the back/forward cache (bfcache): no `unload` handlers (`pagehide` instead), no `Cache-Control: no-store` on HTML unless required, no open `BroadcastChannel`/IndexedDB transactions at navigation; check DevTools → Application → Back/forward cache. A bfcache hit is an instant navigation with zero CLS.
+- Back/forward: ensure the page is eligible for the back/forward cache (bfcache): no `unload` handlers (`pagehide` instead; S:`unload-handler`), no `Cache-Control: no-store` on the HTML document unless the page shows sensitive data (it can make the page ineligible or cause early eviction, depending on the browser: Chrome now admits some `no-store` pages under extra conditions; `no-cache` or `max-age=0` still revalidates; S:`cache-no-store`, which only matters on document responses, not API or asset headers), no open `BroadcastChannel`/IndexedDB transactions at navigation; check DevTools → Application → Back/forward cache. A bfcache hit is an instant navigation with zero CLS. Pages restored from bfcache fire `pageshow` with `event.persisted`: refresh stale data there instead of disabling the cache.
+- Analytics and "send on leave": `navigator.sendBeacon()` or `fetch(url, { keepalive: true })` on `visibilitychange` (state `hidden`) or `pagehide`, never a synchronous XHR or an `unload` handler. Mobile browsers often never fire `unload`, so data sent there is lost as well as costing bfcache.
 - SPA route changes and reorders: the View Transitions API (`document.startViewTransition`, framework wrappers) animates between states instead of letting content jump; it does not reduce a measured CLS by itself, but it removes the perceived jump.
 
 ## TTFB and server rendering
@@ -46,13 +51,16 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 - Reduce: route splitting, `import()` for modals/charts/editors/maps, tree-shakable imports, drop polyfills for modern targets (check `browserslist`), replace heavy libs, remove dead feature flags, ship ES modules.
 - Hydration: hydrate less (server components, partial/islands hydration, `client:visible`-style directives), avoid making whole layouts client components.
 - Long tasks: break work > 50 ms into chunks; move parsing/crypto/image work to Web Workers.
+- Critical path: inline the small critical CSS; `defer` or `type="module"` (deferred by default) for scripts, nothing large and non-critical in `<head>`; no CSS `@import` chains (S:`css-import`): each one is a serial request before first render; split rarely needed CSS with `media` on its `<link>` (print, wide screens).
+- Resource hints have different jobs: `preconnect` for a third-party origin needed in the first seconds (`dns-prefetch` as the cheap fallback), `preload` for a same-page resource the parser finds late (LCP background image, critical font), `prefetch` / speculation rules for the next navigation. A hint for something not used soon steals bandwidth from what is.
 
 ## Images and media
 - Right size: rendered width × DPR (`srcset` + accurate `sizes`), framework components (`next/image`, `@nuxt/image`, `astro:assets`, `@unpic`), or CDN transforms (Cloudinary, imgix, Vercel/Netlify image CDNs).
 - Right format: AVIF > WebP > JPEG; SVG for icons/illustrations (minified, or a sprite); MP4/WebM instead of GIF (`<video autoplay muted loop playsinline>`).
-- Priority: LCP image eager + `fetchpriority="high"`; everything below the fold `loading="lazy"` + `decoding="async"`.
+- `srcset` with `w` descriptors needs an accurate `sizes`; without it the browser assumes `100vw` and a 300px card downloads the full-width candidate (S:`srcset-no-sizes`).
+- Priority: LCP image eager + `fetchpriority="high"`; everything below the fold `loading="lazy"` + `decoding="async"`. Priority is relative, so `high` on many elements means high on none: one or two per page. `fetchpriority="low"` for images that are in the HTML but not visible yet (carousel slides 2+, hidden tabs). Fonts get `preload` with `crossorigin`, not `fetchpriority`.
 - Dimensions on every image; blur/LQIP placeholders for large photos.
-- Video: `preload="none"` or `metadata` below the fold, poster image, facades for YouTube/Vimeo embeds.
+- Video: `preload="none"` or `metadata` below the fold, poster image (with `width`/`height`), WebM before MP4 in `<source>` order, facades for YouTube/Vimeo embeds.
 
 ## Fonts
 - Self-host WOFF2 (Google Fonts adds two extra origins): `next/font`, Fontsource, or downloaded files.
@@ -65,8 +73,8 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 - Compression: brotli for text (HTML, JS, CSS, JSON, SVG); never compress already-compressed images/video.
 - Cache headers: hashed assets `public, max-age=31536000, immutable`; HTML `no-cache` (revalidate) or short `s-maxage` with `stale-while-revalidate`; API responses with `ETag`/`Last-Modified` where safe; `private` for per-user data.
 - HTTP/2 or HTTP/3; fewer origins; `preconnect` only to 1-3 critical third-party origins used early.
-- Service worker caching for repeat visits/offline (Workbox), with a clear update strategy.
-- Prefetch likely next navigations (framework `<Link prefetch>`, Speculation Rules API where supported) without prefetching everything.
+- Service worker caching for repeat visits/offline (Workbox), with a clear update strategy, one strategy per kind of resource: cache-first for hashed static assets; network-first for HTML (so a deploy shows up); stale-while-revalidate for non-critical API data; expiration limits on every runtime cache. Do not cache opaque cross-origin responses at scale (their size is padded and failures are invisible), do not cache POST responses (queue writes with background sync instead), and never cache per-user responses under a shared key.
+- Prefetch likely next navigations (framework `<Link prefetch>`, Speculation Rules API where supported) without prefetching everything. Speculation rules: `prefetch` is cheap; `prerender` runs the whole page in the background, so use document rules (`"where": { "href_matches": … }`) with `eagerness: "conservative"` (starts on pointer-down/touch start) or `"moderate"` (can start after a short hover or focus, so more prerenders are wasted) for same-origin links; eagerness is a hint the browser may adjust. Use it only for links that have no side effects on load, exclude logout/cart/"add" URLs, and gate analytics and other load-time side effects on `document.prerendering` / the `prerenderingchange` event. Check the hit rate (DevTools → Application → Speculative loads) before keeping it.
 - Request hygiene: dedupe identical requests (query cache), cancel stale ones (`AbortController`), debounce typing, batch small calls, avoid chatty APIs (one request per row).
 
 ## Third parties
@@ -77,6 +85,8 @@ INP = input delay + processing (handlers) + presentation delay (render/paint aft
 
 ## Rendering and runtime
 - DOM size: keep under ~1500 elements on initial render; virtualize lists and tables; render hidden tabs/menus lazily.
+- `content-visibility: auto` skips layout and paint of off-screen sections on long pages; pair it with `contain-intrinsic-size: auto <estimate>` (in `lh`/`rem`; the `auto` keyword remembers the real size once rendered) or the scrollbar jumps. Not on above-the-fold content or short pages, where it only adds work. Elements stay in the accessibility tree and in find-in-page. For isolated widgets, `contain: layout style paint` keeps their changes from invalidating the rest of the page.
+- Replace JS that CSS now does natively (auto-growing textareas, accordion height measurement, scroll-linked effects, parent-state class toggles): every removed listener is main-thread time back. interface-craft's `legacy_ui_audit.py` lists them.
 - CSS: avoid huge selectors on large DOMs, `transition: all`, animating layout properties, large `backdrop-filter`/blur areas, fixed backgrounds with big images.
 - Scroll: passive listeners (`{ passive: true }`), no layout reads in scroll handlers (use `IntersectionObserver`, `ResizeObserver`), `position: sticky` instead of scroll-driven JS where possible.
 - Memory leaks: listeners, intervals, observers, subscriptions not cleaned up on unmount; detached DOM nodes. DevTools → Memory → heap snapshots before/after repeating an action 5-10 times; growth that never drops is a leak.
